@@ -1,0 +1,27 @@
+name: apang-project
+services:
+  # 1. Eureka Server
+  eureka-server:
+    image: hyun0629/eureka-server:1.0
+    container_name: eureka-server
+    ports:
+      - "3101:3101"
+    restart: always
+
+  # 2. PostgreSQL DB
+  apang-db:
+    image: postgres:16-alpine
+    container_name: apang-db
+    environment:
+      POSTGRES_USER: apang
+      POSTGRES_PASSWORD: apangpass
+      POSTGRES_DB: apang_db
+    ports:
+      - "5432:5432"
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# 볼륨 정의 (서비스와 같은 레벨)
+volumes:
+  postgres_data:
