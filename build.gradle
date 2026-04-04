@@ -22,7 +22,7 @@ repositories {
 
     maven {
         name = "GitHubPackages"
-        url = uri("https://maven.pkg.github.com/II-MSA/common-module")
+        url = uri("https://maven.pkg.github.com/yonggyo1125/spartahub-common")
         credentials {
             username = System.getenv("GPR_USER")
             password = System.getenv("GPR_TOKEN")
@@ -37,9 +37,9 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation 'com.iimsa:common:1.0-SNAPSHOT'
+    implementation 'com.iimsa:common2:1.2-SNAPSHOT'
 
-    // 하단에 개별 서비스에 맞는 의존성 추가
+    // ...
 
     // Querydsl APT
     annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
