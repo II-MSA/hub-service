@@ -5,9 +5,13 @@ import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.result.HubRouteResult;
 import org.springframework.data.domain.Page;
 
+import java.util.UUID;
+
 public interface HubRouteApplicationService {
 
     HubRouteResult findHubRoute(FindHubRouteQuery query);
 
     Page<HubRouteResult> listHubRoutes(ListHubRouteQuery query);
+
+    HubRouteResult deleteHubRoute(UUID hubRouteId);
 }

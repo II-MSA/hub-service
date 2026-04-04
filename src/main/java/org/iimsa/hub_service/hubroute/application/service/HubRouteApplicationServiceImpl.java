@@ -12,6 +12,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -37,5 +39,14 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         }
 
         return hubRouteRepository.findAllActive(pageRequest).map(HubRouteResult::from);
+    }
+
+    @Override
+    @Transactional
+    public HubRouteResult deleteHubRoute(UUID hubRouteId) {
+        HubRoute hubRoute = hubRouteRepository.findActiveById(hubRouteId)
+                .orElseThrow(() -> new NotFoundException("허브 경로를 찾을 수 없습니다."));
+        hubRoute.softDelete(null);
+        return HubRouteResult.from(hubRouteRepository.save(hubRoute));
     }
 }

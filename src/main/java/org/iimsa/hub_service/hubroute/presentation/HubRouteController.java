@@ -9,6 +9,7 @@ import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.service.HubRouteApplicationService;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRouteResponse;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -43,5 +44,17 @@ public class HubRouteController {
                 .listHubRoutes(new ListHubRouteQuery(fromHubId, page, size))
                 .map(HubRouteResponse::from);
         return CommonResponse.success(response);
+    }
+
+    @Operation(summary = "허브 경로 논리 삭제")
+    @DeleteMapping("/{hubRouteId}")
+    @ResponseStatus(HttpStatus.OK)
+    public CommonResponse<HubRouteResponse> deleteHubRoute(
+            @PathVariable UUID hubRouteId
+    ) {
+        HubRouteResponse response = HubRouteResponse.from(
+                hubRouteApplicationService.deleteHubRoute(hubRouteId)
+        );
+        return CommonResponse.success("허브 경로가 삭제되었습니다.", response);
     }
 }
