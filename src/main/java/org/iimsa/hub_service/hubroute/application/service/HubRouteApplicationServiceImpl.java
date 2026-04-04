@@ -2,6 +2,7 @@ package org.iimsa.hub_service.hubroute.application.service;
 
 import lombok.RequiredArgsConstructor;
 import org.iimsa.common.exception.NotFoundException;
+import org.iimsa.hub_service.hubroute.application.dto.command.UpdateHubRouteCommand;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.result.HubRouteResult;
@@ -39,6 +40,15 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         }
 
         return hubRouteRepository.findAllActive(pageRequest).map(HubRouteResult::from);
+    }
+
+    @Override
+    @Transactional
+    public HubRouteResult updateHubRoute(UUID hubRouteId, UpdateHubRouteCommand command) {
+        HubRoute hubRoute = hubRouteRepository.findActiveById(hubRouteId)
+                .orElseThrow(() -> new NotFoundException("허브 경로를 찾을 수 없습니다."));
+        hubRoute.update(command.estimatedDistance(), command.estimatedDuration());
+        return HubRouteResult.from(hubRouteRepository.save(hubRoute));
     }
 
     @Override

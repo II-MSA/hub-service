@@ -4,9 +4,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.iimsa.common.response.CommonResponse;
+import jakarta.validation.Valid;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.service.HubRouteApplicationService;
+import org.iimsa.hub_service.hubroute.presentation.dto.request.UpdateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRouteResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -44,6 +46,18 @@ public class HubRouteController {
                 .listHubRoutes(new ListHubRouteQuery(fromHubId, page, size))
                 .map(HubRouteResponse::from);
         return CommonResponse.success(response);
+    }
+
+    @Operation(summary = "허브 경로 수정", description = "estimatedDistance, estimatedDuration 부분 수정 가능 (PATCH)")
+    @PatchMapping("/{hubRouteId}")
+    public CommonResponse<HubRouteResponse> updateHubRoute(
+            @PathVariable UUID hubRouteId,
+            @Valid @RequestBody UpdateHubRouteRequest request
+    ) {
+        HubRouteResponse response = HubRouteResponse.from(
+                hubRouteApplicationService.updateHubRoute(hubRouteId, request.toCommand())
+        );
+        return CommonResponse.success("허브 경로가 수정되었습니다.", response);
     }
 
     @Operation(summary = "허브 경로 논리 삭제")
