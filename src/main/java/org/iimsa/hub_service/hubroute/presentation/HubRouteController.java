@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.service.HubRouteApplicationService;
+import org.iimsa.hub_service.hubroute.presentation.dto.request.CreateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.request.UpdateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRouteResponse;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,18 @@ import java.util.UUID;
 public class HubRouteController {
 
     private final HubRouteApplicationService hubRouteApplicationService;
+
+    @Operation(summary = "허브 경로 생성")
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommonResponse<HubRouteResponse> createHubRoute(
+            @Valid @RequestBody CreateHubRouteRequest request
+    ) {
+        HubRouteResponse response = HubRouteResponse.from(
+                hubRouteApplicationService.createHubRoute(request.toCommand())
+        );
+        return CommonResponse.success("허브 경로가 생성되었습니다.", response);
+    }
 
     @Operation(summary = "허브 경로 단건 조회")
     @GetMapping("/{hubRouteId}")
