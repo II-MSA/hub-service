@@ -1,12 +1,14 @@
-package org.iimsa.hub_service.hubroute.domain.service;
+package org.iimsa.hub_service.hubroute.application;
 
 import java.util.Optional;
 
 /**
- * 외부 API 실시간 소요시간 조회 클라이언트 인터페이스
- * 구현체: infrastructure/external/KakaoRouteTimeClientImpl (TODO)
+ * 외부 API 실시간 소요시간 조회 아웃바운드 포트
+ *
+ * <p>application layer가 외부 경로 시간 조회 인프라에 의존하지 않도록 추상화합니다.
+ * 구현체: hubroute/infrastructure/external/KakaoRouteTimeClientImpl
  */
-public interface ExternalRouteTimeClient {
+public interface ExternalRouteTimePort {
 
     /**
      * 두 좌표 간 실시간 소요시간 조회

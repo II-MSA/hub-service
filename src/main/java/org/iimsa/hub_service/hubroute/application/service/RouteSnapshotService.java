@@ -6,7 +6,7 @@ import org.iimsa.hub_service.hubroute.domain.cache.LiveRouteCache;
 import org.iimsa.hub_service.hubroute.domain.cache.RouteSnapshotCache;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.iimsa.hub_service.hubroute.domain.repository.HubRouteCacheRepository;
-import org.iimsa.hub_service.hubroute.domain.service.RouteTimeResolver;
+import org.iimsa.hub_service.hubroute.application.service.RouteTimeResolver;
 import org.springframework.stereotype.Service;
 
 /**

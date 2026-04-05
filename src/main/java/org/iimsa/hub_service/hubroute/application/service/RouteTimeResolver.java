@@ -1,7 +1,9 @@
-package org.iimsa.hub_service.hubroute.domain.service;
+package org.iimsa.hub_service.hubroute.application.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.iimsa.hub_service.hubroute.application.ExternalRouteTimePort;
+import org.iimsa.hub_service.hubroute.application.HubCoordinatePort;
 import org.iimsa.hub_service.hubroute.domain.cache.LiveRouteCache;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.iimsa.hub_service.hubroute.domain.model.RouteTimeSource;
@@ -23,15 +25,15 @@ import java.util.UUID;
  *   <li>PREVIOUS_SNAPSHOT — 직전 배차 스냅샷</li>
  * </ol>
  *
- * <p>REALTIME 조회 시 {@link HubCoordinatePort}를 통해 Hub의 위도/경도를 조회합니다.
- * 좌표가 없는 허브는 실시간 조회를 건너뛰고 다음 fallback으로 진행합니다.
+ * <p>외부 포트({@link ExternalRouteTimePort}, {@link HubCoordinatePort})에 의존하므로
+ * application layer에 위치합니다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RouteTimeResolver {
 
-    private final ExternalRouteTimeClient externalRouteTimeClient;
+    private final ExternalRouteTimePort externalRouteTimePort;
     private final HubCoordinatePort hubCoordinatePort;
     private final HubRouteHistoryRepository historyRepository;
     private final HubRouteCacheRepository cacheRepository;
@@ -94,7 +96,7 @@ public class RouteTimeResolver {
             return Optional.empty();
         }
 
-        var result = externalRouteTimeClient.fetch(
+        var result = externalRouteTimePort.fetch(
                 fromCoord.get().latitude(), fromCoord.get().longitude(),
                 toCoord.get().latitude(),   toCoord.get().longitude()
         );

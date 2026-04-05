@@ -1,7 +1,7 @@
 package org.iimsa.hub_service.hubroute.infrastructure.external;
 
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.hub_service.hubroute.domain.service.ExternalRouteTimeClient;
+import org.iimsa.hub_service.hubroute.application.ExternalRouteTimePort;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -20,13 +20,13 @@ import java.util.Optional;
  */
 @Slf4j
 @Component
-public class KakaoRouteTimeClientImpl implements ExternalRouteTimeClient {
+public class KakaoRouteTimeClientImpl implements ExternalRouteTimePort {
 
     @Override
     public Optional<RouteTimeResult> fetch(double fromLat, double fromLng, double toLat, double toLng) {
         // TODO: 카카오 모빌리티 API 연동
         //   1. RestClient / WebClient 로 Directions API 호출
-        //      - origin  : "{fromLng},{fromLat}" (카카오 API는 경도,위도 순)
+        //      - origin      : "{fromLng},{fromLat}" (카카오 API는 경도,위도 순)
         //      - destination : "{toLng},{toLat}"
         //   2. 응답 파싱
         //      - duration : routes[0].summary.duration (초) → / 60 → 분 (올림)
