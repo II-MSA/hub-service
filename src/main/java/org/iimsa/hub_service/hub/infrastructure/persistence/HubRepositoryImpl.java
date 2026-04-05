@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.iimsa.hub_service.hub.domain.model.Hub;
 import org.iimsa.hub_service.hub.domain.repository.HubRepository;
 import org.springframework.stereotype.Repository;
+import org.iimsa.hub_service.hub.domain.model.HubId;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -21,11 +22,12 @@ public class HubRepositoryImpl implements HubRepository {
 
     @Override
     public Optional<Hub> findActiveById(UUID id) {
-        return jpaHubRepository.findActiveById(id);
+        return jpaHubRepository.findActiveById(HubId.of(id));
     }
 
     @Override
     public boolean existsById(UUID id) {
-        return jpaHubRepository.existsById(id);
+        return jpaHubRepository.existsById(HubId.of(id));
     }
+
 }

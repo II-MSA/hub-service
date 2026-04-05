@@ -2,7 +2,6 @@ package org.iimsa.hub_service.hub.infrastructure;
 
 import lombok.RequiredArgsConstructor;
 import org.iimsa.hub_service.hub.domain.repository.HubRepository;
-import org.iimsa.hub_service.hubroute.application.HubCoordinatePort;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -16,14 +15,9 @@ import java.util.UUID;
  */
 @Component
 @RequiredArgsConstructor
-public class HubCoordinateAdapter implements HubCoordinatePort {
+public class HubCoordinateAdapter {
 
     private final HubRepository hubRepository;
 
-    @Override
-    public Optional<HubCoordinate> findCoordinate(UUID hubId) {
-        return hubRepository.findActiveById(hubId)
-                .filter(hub -> hub.getLatitude() != null && hub.getLongitude() != null)
-                .map(hub -> new HubCoordinate(hub.getLatitude(), hub.getLongitude()));
-    }
+
 }
