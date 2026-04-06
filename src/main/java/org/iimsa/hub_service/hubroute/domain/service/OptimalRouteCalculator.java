@@ -11,6 +11,13 @@ import java.util.*;
  * <p>전체 허브 경로(엣지) 그래프를 입력받아 출발 허브 → 도착 허브의
  * 최적 구간 시퀀스를 반환합니다.
  *
+ * <h3>거리 제약 (P2P + Hub-to-Hub Relay 정책)</h3>
+ * <ul>
+ *   <li>단일 구간 거리가 {@value MAX_DIRECT_DISTANCE_KM}km 미만인 엣지만 그래프에 포함</li>
+ *   <li>200km 이상인 구간은 직접 배송 불가 → 그래프에서 제외하여 중간 경유지 경로만 선택되도록 강제</li>
+ *   <li>거리 정보가 없는(null) 엣지는 제약 판단 불가이므로 그래프에 포함</li>
+ * </ul>
+ *
  * <h3>가중치 정책</h3>
  * <ol>
  *   <li>{@code estimatedDuration} (분) — 최우선</li>
@@ -20,6 +27,9 @@ import java.util.*;
  */
 @Service
 public class OptimalRouteCalculator {
+
+    /** 단일 구간 직접 배송 허용 최대 거리 (km). 이 값 이상이면 중간 경유지 필수. */
+    static final double MAX_DIRECT_DISTANCE_KM = 200.0;
 
     private static final int DISTANCE_TO_DURATION_FACTOR = 10;
     private static final int WEIGHT_UNKNOWN = 999_999;
@@ -37,8 +47,15 @@ public class OptimalRouteCalculator {
             return Collections.emptyList();
         }
 
+        // ── 정책 필터: 200km 이상 구간은 직접 배송 불가 → 그래프에서 제외
+        // estimatedDistance가 null인 경우 거리 불명이므로 일단 포함
+        List<HubRoute> eligibleRoutes = allRoutes.stream()
+                .filter(r -> r.getEstimatedDistance() == null
+                        || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
+                .toList();
+
         // 인접 리스트 그래프 구성: fromHubId → 출발 가능한 HubRoute 목록
-        Map<UUID, List<HubRoute>> graph = buildGraph(allRoutes);
+        Map<UUID, List<HubRoute>> graph = buildGraph(eligibleRoutes);
 
         // dist: 출발 허브로부터 각 노드까지의 현재 최단 비용
         Map<UUID, Integer> dist = new HashMap<>();
