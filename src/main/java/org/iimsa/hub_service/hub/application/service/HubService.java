@@ -22,6 +22,8 @@ import org.iimsa.hub_service.hub.domain.service.AddressResolver;
 import org.iimsa.hub_service.hub.domain.service.CompanyProvider;
 import org.iimsa.hub_service.hub.domain.service.HubRouteProvider;
 import org.iimsa.hub_service.hub.domain.service.RoleCheck;
+import org.iimsa.hub_service.hub.domain.service.UserProvider;
+import org.iimsa.hub_service.hub.domain.service.dto.HubDeliveryManagerData;
 import org.iimsa.hub_service.hub.domain.service.dto.HubRoutePathData;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -40,11 +42,12 @@ public class HubService {
     private final AddressResolver addressResolver;
     private final CompanyProvider companyProvider;
     private final HubRouteProvider hubRouteProvider;
+    private final UserProvider userProvider;
     private final DeliveryEvents deliveryEvents;
     private final HubEvents hubEvents;
     private final EntityManager em;
 
-    // 1. 허브 생성 (DTO 활용 및 허브 매니저 추가)
+    // 1. 허브 생성
     @Transactional
     public UUID createHub(HubServiceDto.Create data) {
         Hub hub = Hub.builder()
@@ -129,19 +132,24 @@ public class HubService {
         UUID startHubId = event.supplierHubId();
         UUID endHubId = event.receiverHubId();
 
-        // 1. 상품 재고 차감 (출발 허브에서 해당 상품 수량만큼 빼기)
+        // 1. 상품 재고 차감
         removeProductStock(startHubId, event.productId(), event.productQuantity());
 
-        // 2. 허브 이동 경로 조회 (이미 구현해두신 Feign Client 호출)
+        // 2. 허브 이동 경로 조회
         log.info("경로 조회 요청: StartHub={}, EndHub={}", startHubId, endHubId);
         HubRoutePathData routeData = hubRouteProvider.getHubRoute(startHubId, endHubId);
 
-        // 3. 배달 서버로 보낼 통합 데이터 생성
-        DeliveryRequestedPayload deliveryPayload = DeliveryRequestedPayload.of(event, routeData);
+        // 3. 배송 담당 기사 순차 할당
+        log.info("배송 기사 배정 요청: HubId={}", startHubId);
+        HubDeliveryManagerData driverData = userProvider.getNextHubDeliveryManager(startHubId);
+        log.info("배송 기사 배정 완료: Name={}, Sequence={}", driverData.name(), driverData.sequence());
 
-        // 4. 배달 서버로 이벤트 발행
+        // 4. 배달 서버로 보낼 통합 데이터 생성
+        DeliveryRequestedPayload deliveryPayload = DeliveryRequestedPayload.of(event, routeData, driverData);
+
+        // 5. 배달 서버로 이벤트 발행
         deliveryEvents.publishDeliveryRequest(deliveryPayload);
-        log.info("[Order Processing] 배달 서버로 라우팅 정보 전달 및 이벤트 발행 완료");
+        log.info("[Order Processing] 배달 서버로 라우팅, 기사 정보 전달 및 이벤트 발행 완료");
     }
 
     private Hub getHub(UUID hubId) {
@@ -153,5 +161,4 @@ public class HubService {
         return SecurityUtil.getCurrentUsername()
                 .orElseThrow(() -> new UnAuthorizedException("관리자 인증 정보가 유효하지 않습니다."));
     }
-
 }

@@ -1,6 +1,7 @@
 package org.iimsa.hub_service.hub.domain.event.payload;
 
 import java.util.UUID;
+import org.iimsa.hub_service.hub.domain.service.dto.HubDeliveryManagerData;
 import org.iimsa.hub_service.hub.domain.service.dto.HubRoutePathData;
 
 public record DeliveryRequestedPayload(
@@ -22,13 +23,18 @@ public record DeliveryRequestedPayload(
         UUID endHubId,
         String endHubName,
 
+        UUID hubDeliveryManagerId,
+        String hubDeliveryManagerName,
+        String hubDeliveryManagerSlackId,
+        Integer hubDeliveryManagerSequence,
+
         Integer totalEstimatedDuration,
         Double totalEstimatedDistance,
         HubRoutePathData routePath,
 
         String requestDetails
 ) {
-    public static DeliveryRequestedPayload of(OrderCreatedPayload order, HubRoutePathData routePath) {
+    public static DeliveryRequestedPayload of(OrderCreatedPayload order, HubRoutePathData routePath, HubDeliveryManagerData driverData) {
         return new DeliveryRequestedPayload(
                 order.correlationId(),
                 order.orderId(),
@@ -47,6 +53,11 @@ public record DeliveryRequestedPayload(
                 order.receiverName(),
                 order.receiverHubId(),
                 order.receiverHubName(),
+
+                driverData.deliveryManagerId(),
+                driverData.name(),
+                driverData.slackId(),
+                driverData.sequence(),
 
                 routePath.totalDuration(),
                 routePath.totalDistance(),
