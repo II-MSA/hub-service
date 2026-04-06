@@ -26,7 +26,9 @@ import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.type.SqlTypes;
 import org.iimsa.common.domain.BaseEntity;
 import org.iimsa.hub_service.hub.domain.event.HubEvents;
+import org.iimsa.hub_service.hub.domain.event.payload.HubAction;
 import org.iimsa.hub_service.hub.domain.exception.MasterOnlyException;
+import org.iimsa.hub_service.hub.domain.exception.ProductNotFoundException;
 import org.iimsa.hub_service.hub.domain.service.AddressResolver;
 import org.iimsa.hub_service.hub.domain.service.CompanyProvider;
 import org.iimsa.hub_service.hub.domain.service.RoleCheck;
@@ -73,7 +75,8 @@ public class Hub extends BaseEntity {
             this.hubManager = new HubManager(hubManagerId, hubManagerName);
         }
 
-        events.hubChanged(this, true);
+        // 허브 생성 이벤트 발행
+        events.hubChanged(this, HubAction.CREATED);
     }
 
     public void addProduct(int stock, UUID companyId, CompanyProvider storeProvider, RoleCheck roleCheck) {
@@ -98,10 +101,17 @@ public class Hub extends BaseEntity {
                 .ifPresent(HubProduct::delete);
     }
 
+    public void decreaseProductStock(UUID productId, int quantity) {
+        HubProduct targetProduct = this.products.stream()
+                .filter(p -> p.getDetail().getProductId().equals(productId))
+                .findFirst()
+                .orElseThrow(() -> new ProductNotFoundException(productId));
+
+        targetProduct.reduceStock(quantity);
+    }
 
     public void update(String name, String address, Double latitude, Double longitude) {
         if (name != null) this.name = name;
-
     }
 
     // change hub name
@@ -112,7 +122,8 @@ public class Hub extends BaseEntity {
 
         this.name = name;
 
-        events.hubChanged(this, false);
+        // 단순 정보 변경 이벤트 발행
+        events.hubChanged(this, HubAction.INFO_UPDATED);
     }
 
     // change Address
@@ -125,14 +136,17 @@ public class Hub extends BaseEntity {
 
         this.address = new Address(address, resolver);
 
-        events.hubChanged(this, true);
+        // 위치 변경 이벤트 발행
+        events.hubChanged(this, HubAction.LOCATION_UPDATED);
     }
 
     // change hubManager
     public void changeHubManager(UUID hubManagerId, String hubManagerName, RoleCheck roleCheck, HubEvents events) {
         checkAuthority(roleCheck);
         this.hubManager = new HubManager(hubManagerId, hubManagerName);
-        events.hubChanged(this, true);
+
+        // 단순 정보 갱신 이벤트 방생
+        events.hubChanged(this, HubAction.INFO_UPDATED);
     }
 
     // hub delete (Not hub Product)
@@ -143,7 +157,8 @@ public class Hub extends BaseEntity {
 
         super.delete(null);
 
-        events.hubChanged(this, true);
+        // 삭제 이벤트 발행
+        events.hubChanged(this, HubAction.DELETED);
     }
 
     private void checkAuthority(RoleCheck roleCheck) {

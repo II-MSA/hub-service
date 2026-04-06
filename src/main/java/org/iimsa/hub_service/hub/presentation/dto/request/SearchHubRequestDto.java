@@ -24,26 +24,30 @@ public class SearchHubRequestDto {
         // 허브 주소 (Hub.address.address)
         private String address;
 
-        // 허브 담당자 ID 목록 (Hub.hubManager.hubManagerId)
-        private List<UUID> hubManagerIds;
+        // 허브 담당자 ID (단일 검색으로 통일)
+        private UUID hubManagerId;
 
         // 허브 담당자 이름 (Hub.hubManager.hubManagerName)
         private String hubManagerName;
 
         // 소속/입점 업체 ID 목록 (HubProduct.company.companyId)
-        // HubQueryRepository의 findAllByCompanyId 메서드를 참고하여 다중 검색용으로 추가
         private List<UUID> companyIds;
 
+        // 소속/입점 업체 이름 (추가됨)
+        private String companyName;
+
+        // RequestDto -> DomainDto 변환 로직
         public HubQueryDto.Search toDomainDto() {
             return HubQueryDto.Search.builder()
                     .hubIds(hubIds != null
                             ? hubIds.stream().map(HubId::of).collect(Collectors.toList())
                             : null)
-                    .name(name)
-                    .address(address)
-                    .hubManagerIds(hubManagerIds)
-                    .hubManagerName(hubManagerName)
-                    .companyIds(companyIds)
+                    .hubName(this.name)
+                    .address(this.address)
+                    .hubManagerId(this.hubManagerId)
+                    .hubManagerName(this.hubManagerName)
+                    .companyIds(this.companyIds)
+                    .companyName(this.companyName)
                     .build();
         }
     }

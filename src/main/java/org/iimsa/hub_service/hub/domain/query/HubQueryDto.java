@@ -15,11 +15,13 @@ public class HubQueryDto {
     @Builder
     public static class Search {
         private List<HubId> hubIds;
-        private String name;
+        private String hubName;
         private String address;
-        private List<UUID> hubManagerIds;
+
+        private UUID hubManagerId;
         private String hubManagerName;
         private List<UUID> companyIds;
+        private String companyName;
     }
 
 }

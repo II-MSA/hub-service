@@ -32,5 +32,5 @@ public class CompanyProviderImpl implements CompanyProvider {
             log.error("Company 서비스 호출 실패: companyId={}, Error={}", companyId, e.getMessage());
             throw new RuntimeException("업체 정보 조회 중 외부 서비스 호출에 실패했습니다.", e);
         }
-    }{}
+    }
 }

@@ -7,7 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.iimsa.common.exception.UnAuthorizedException;
 import org.iimsa.common.util.SecurityUtil;
 import org.iimsa.hub_service.hub.application.dto.HubServiceDto;
+import org.iimsa.hub_service.hub.domain.event.DeliveryEvents;
 import org.iimsa.hub_service.hub.domain.event.HubEvents;
+import org.iimsa.hub_service.hub.domain.event.payload.DeliveryRequestedPayload;
+import org.iimsa.hub_service.hub.domain.event.payload.OrderCreatedPayload;
 import org.iimsa.hub_service.hub.domain.exception.HubNotFoundException;
 import org.iimsa.hub_service.hub.domain.model.Company;
 import org.iimsa.hub_service.hub.domain.model.Hub;
@@ -17,7 +20,9 @@ import org.iimsa.hub_service.hub.domain.repository.HubBulkRepository;
 import org.iimsa.hub_service.hub.domain.repository.HubRepository;
 import org.iimsa.hub_service.hub.domain.service.AddressResolver;
 import org.iimsa.hub_service.hub.domain.service.CompanyProvider;
+import org.iimsa.hub_service.hub.domain.service.HubRouteProvider;
 import org.iimsa.hub_service.hub.domain.service.RoleCheck;
+import org.iimsa.hub_service.hub.domain.service.dto.HubRoutePathData;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,10 +34,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class HubService {
 
     private final HubRepository hubRepository;
-    private final HubBulkRepository hubBulkRepository; // 벌크 업데이트를 위한 레포지토리
+    private final HubBulkRepository hubBulkRepository;
+
     private final RoleCheck roleCheck;
     private final AddressResolver addressResolver;
     private final CompanyProvider companyProvider;
+    private final HubRouteProvider hubRouteProvider;
+    private final DeliveryEvents deliveryEvents;
     private final HubEvents hubEvents;
     private final EntityManager em;
 
@@ -98,12 +106,42 @@ public class HubService {
         log.info("[BulkUpdate] Company ID: {} - {} hub products updated", company.getId(), updatedCount);
     }
 
+    // 8. 허브 상품 재고 감소
+    @Transactional
+    public void removeProductStock(UUID hubId, UUID productId, int quantity) {
+        Hub hub = getHub(hubId);
+        hub.decreaseProductStock(productId, quantity);
+        log.info("허브 재고 차감 완료 - HubId: {}, ProductId: {}, Qty: {}", hubId, productId, quantity);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void syncProductInfo(HubProduct hubProduct) {
         long updatedCount = hubBulkRepository.bulkUpdateProductInfo(hubProduct);
         em.clear();
 
         log.info("[BulkUpdate] Product Code: {} - {} hub products updated", hubProduct.getDetail().getName(), updatedCount);
+    }
+
+    @Transactional
+    public void processOrderCreatedEvent(OrderCreatedPayload event) {
+        log.info("[Order Processing] 주문 이벤트 수신 - OrderId: {}", event.orderId());
+
+        UUID startHubId = event.supplierHubId();
+        UUID endHubId = event.receiverHubId();
+
+        // 1. 상품 재고 차감 (출발 허브에서 해당 상품 수량만큼 빼기)
+        removeProductStock(startHubId, event.productId(), event.productQuantity());
+
+        // 2. 허브 이동 경로 조회 (이미 구현해두신 Feign Client 호출)
+        log.info("경로 조회 요청: StartHub={}, EndHub={}", startHubId, endHubId);
+        HubRoutePathData routeData = hubRouteProvider.getHubRoute(startHubId, endHubId);
+
+        // 3. 배달 서버로 보낼 통합 데이터 생성
+        DeliveryRequestedPayload deliveryPayload = DeliveryRequestedPayload.of(event, routeData);
+
+        // 4. 배달 서버로 이벤트 발행
+        deliveryEvents.publishDeliveryRequest(deliveryPayload);
+        log.info("[Order Processing] 배달 서버로 라우팅 정보 전달 및 이벤트 발행 완료");
     }
 
     private Hub getHub(UUID hubId) {
@@ -115,4 +153,5 @@ public class HubService {
         return SecurityUtil.getCurrentUsername()
                 .orElseThrow(() -> new UnAuthorizedException("관리자 인증 정보가 유효하지 않습니다."));
     }
+
 }
