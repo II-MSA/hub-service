@@ -23,11 +23,11 @@ public class HubInfoRepositoryImpl implements HubInfoRepository {
     public HubInfo findHub(UUID hubId) {
         var response = hubFeignClient.getHub(hubId);
 
-        if (response == null || response.getData() == null) {
+        if (response == null || response.data() == null) {
             throw new NotFoundException("허브를 찾을 수 없습니다. hubId=" + hubId);
         }
 
-        HubFeignResponse data = response.getData();
+        HubFeignResponse data = response.data();
         return new HubInfo(
                 data.id(),
                 data.name(),
