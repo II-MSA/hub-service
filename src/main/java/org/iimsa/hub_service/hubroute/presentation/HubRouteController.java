@@ -5,11 +5,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.iimsa.common.response.CommonResponse;
 import jakarta.validation.Valid;
+import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.service.HubRouteApplicationService;
 import org.iimsa.hub_service.hubroute.presentation.dto.request.CreateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.request.UpdateHubRouteRequest;
+import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRoutePathResponse;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRouteResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -83,5 +85,22 @@ public class HubRouteController {
                 hubRouteApplicationService.deleteHubRoute(hubRouteId)
         );
         return CommonResponse.success("허브 경로가 삭제되었습니다.", response);
+    }
+
+    @Operation(
+            summary = "출발 허브 → 도착 허브 최적 전체 경로 조회",
+            description = "Hub 서비스가 배차 시 Feign으로 호출합니다. 알고리즘 구현 전까지 UnsupportedOperationException 반환."
+    )
+    @GetMapping("/path")
+    public CommonResponse<HubRoutePathResponse> findOptimalRoute(
+            @RequestParam UUID originHubId,
+            @RequestParam UUID destinationHubId
+    ) {
+        HubRoutePathResponse response = HubRoutePathResponse.from(
+                hubRouteApplicationService.findOptimalRoute(
+                        new FindHubRoutePathQuery(originHubId, destinationHubId)
+                )
+        );
+        return CommonResponse.success(response);
     }
 }

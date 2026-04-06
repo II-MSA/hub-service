@@ -1,7 +1,7 @@
 package org.iimsa.hub_service.hubroute.infrastructure.external;
 
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.hub_service.hubroute.application.ExternalRouteTimePort;
+import org.iimsa.hub_service.hubroute.domain.service.ExternalRouteTimeClient;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -20,7 +20,7 @@ import java.util.Optional;
  */
 @Slf4j
 @Component
-public class KakaoRouteTimeClientImpl implements ExternalRouteTimePort {
+public class KakaoRouteTimeClientImpl implements ExternalRouteTimeClient {
 
     @Override
     public Optional<RouteTimeResult> fetch(double fromLat, double fromLng, double toLat, double toLng) {

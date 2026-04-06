@@ -5,16 +5,22 @@ import org.iimsa.common.exception.ConflictException;
 import org.iimsa.common.exception.NotFoundException;
 import org.iimsa.hub_service.hubroute.application.dto.command.CreateHubRouteCommand;
 import org.iimsa.hub_service.hubroute.application.dto.command.UpdateHubRouteCommand;
+import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.result.HubRouteResult;
+import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
+import org.iimsa.hub_service.hubroute.domain.model.HubRoutePath;
+import org.iimsa.hub_service.hubroute.domain.repository.HubInfoRepository;
 import org.iimsa.hub_service.hubroute.domain.repository.HubRouteRepository;
+import org.iimsa.hub_service.hubroute.domain.service.OptimalRouteCalculator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,6 +29,8 @@ import java.util.UUID;
 public class HubRouteApplicationServiceImpl implements HubRouteApplicationService {
 
     private final HubRouteRepository hubRouteRepository;
+    private final HubInfoRepository hubInfoRepository;
+    private final OptimalRouteCalculator optimalRouteCalculator;
 
     @Override
     @Transactional
@@ -31,14 +39,15 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
             throw new ConflictException("이미 존재하는 허브 경로입니다.");
         }
 
-        // TODO: 최적 경로 알고리즘 적용 — estimatedDistance, estimatedDuration 자동 계산
-        //       현재는 요청값을 그대로 사용 (수동 입력)
+        // Hub 서비스 Feign 호출 — 허브명 자동 조회
+        HubInfo fromHub = hubInfoRepository.findHub(command.fromHubId());
+        HubInfo toHub   = hubInfoRepository.findHub(command.toHubId());
 
         HubRoute hubRoute = HubRoute.builder()
                 .fromHubId(command.fromHubId())
-                .fromHubName(command.fromHubName())
+                .fromHubName(fromHub.name())
                 .toHubId(command.toHubId())
-                .toHubName(command.toHubName())
+                .toHubName(toHub.name())
                 .estimatedDistance(command.estimatedDistance())
                 .estimatedDuration(command.estimatedDuration())
                 .build();
@@ -82,5 +91,20 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
                 .orElseThrow(() -> new NotFoundException("허브 경로를 찾을 수 없습니다."));
         hubRoute.softDelete(null);
         return HubRouteResult.from(hubRouteRepository.save(hubRoute));
+    }
+
+    @Override
+    public HubRoutePath findOptimalRoute(FindHubRoutePathQuery query) {
+        List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
+
+        List<HubRoute> optimalPath = optimalRouteCalculator.calculate(
+                query.originHubId(), query.destinationHubId(), allRoutes
+        );
+
+        if (optimalPath.isEmpty()) {
+            throw new NotFoundException("출발 허브에서 도착 허브까지의 경로를 찾을 수 없습니다.");
+        }
+
+        return HubRoutePath.of(query.originHubId(), query.destinationHubId(), optimalPath);
     }
 }
