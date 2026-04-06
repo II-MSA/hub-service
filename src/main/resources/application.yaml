@@ -23,6 +23,11 @@ spring:
       ddl-auto: update
     show-sql: true
 
+kakao:
+  mobility:
+    api-key: ${KAKAO_MOBILITY_API_KEY:}
+    url: https://apis-navi.kakaomobility.com
+
 eureka:
   instance:
     prefer-ip-address: false
