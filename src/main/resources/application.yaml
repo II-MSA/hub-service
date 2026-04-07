@@ -34,3 +34,7 @@ eureka:
     fetch-registry: true
     service-url:
       defaultZone: ${EUREKA_SERVER_URL:http://localhost:3101/eureka/}
+
+topics:
+  hub:
+    hub-changed: hub.changed
