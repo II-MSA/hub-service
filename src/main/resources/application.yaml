@@ -25,7 +25,7 @@ spring:
 
 kakao:
   mobility:
-    api-key: ${KAKAO_MOBILITY_API_KEY:}
+    api-key: ${KAKAO_API_KEY:}
     url: https://apis-navi.kakaomobility.com
 
 eureka:
