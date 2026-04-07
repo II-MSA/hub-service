@@ -17,12 +17,16 @@ spring:
     username: apang
     password: apangpass
     driver-class-name: org.postgresql.Driver
-
   # 임시 jpa 설정 ( 이후 config-server로 부터 받을 예정 )
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+kakao:
+  mobility:
+    api-key: ${KAKAO_API_KEY:}
+    url: https://apis-navi.kakaomobility.com
 
 eureka:
   instance:

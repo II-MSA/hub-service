@@ -38,7 +38,13 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation 'com.iimsa:common:1.0-SNAPSHOT'
+    implementation 'com.iimsa:common2:1.2-SNAPSHOT'
+
+    // Redis
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // OpenFeign
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 
     // 하단에 개별 서비스에 맞는 의존성 추가
     implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
