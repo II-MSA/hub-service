@@ -4,6 +4,8 @@ import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 허브 간 최적 경로 계산 도메인 서비스 — 다익스트라 알고리즘
@@ -24,6 +26,14 @@ import java.util.*;
  *   <li>{@code estimatedDistance * 10} — duration null 시 대체</li>
  *   <li>{@code 999_999} — 둘 다 null 이면 최후순위</li>
  * </ol>
+ *
+ * <h3>그래프 캐싱</h3>
+ * <p>경로 CRUD 가 없는 한 그래프 구조는 변하지 않으므로, 인접 리스트를 인메모리에
+ * 캐싱하여 매 요청마다 발생하는 DB allRoutes → buildGraph 비용을 제거합니다.
+ * CRUD 이벤트가 발생하면 {@link #invalidateGraph()} 를 호출해 캐시를 무효화합니다.
+ *
+ * <p>동시성: Double-Checked Locking + {@link ReadWriteLock} 으로 안전하게 보호합니다.
+ * 읽기 경합은 ReadLock 으로 병렬 처리하고, 빌드/무효화에만 WriteLock 을 사용합니다.
  */
 @Service
 public class OptimalRouteCalculator {
@@ -34,12 +44,30 @@ public class OptimalRouteCalculator {
     private static final int DISTANCE_TO_DURATION_FACTOR = 10;
     private static final int WEIGHT_UNKNOWN = 999_999;
 
+    // ── 인메모리 그래프 캐시 ─────────────────────────────────────────────────────
+    /** null 이면 캐시 미적재 상태. volatile 로 DCL 가시성 보장. */
+    private volatile Map<UUID, List<HubRoute>> cachedGraph = null;
+    private final ReadWriteLock graphLock = new ReentrantReadWriteLock();
+
+    // ── 내부 PQ 노드 레코드 ───────────────────────────────────────────────────────
+    /**
+     * PriorityQueue 삽입 시점의 비용을 고정 보관하는 불변 노드.
+     *
+     * <p>Java {@link PriorityQueue} 는 삽입 이후 힙을 재정렬하지 않기 때문에,
+     * dist 맵을 직접 comparator 로 사용하면 이미 삽입된 항목의 순위가
+     * 갱신되지 않아 잘못된 순서로 poll 될 수 있습니다.
+     * 비용을 레코드에 고정함으로써 heap ordering 을 항상 정확하게 유지합니다.
+     */
+    private record Entry(int cost, UUID id) {}
+
+    // ── 공개 API ─────────────────────────────────────────────────────────────────
+
     /**
      * 출발 허브에서 도착 허브까지의 최적 구간 시퀀스 계산
      *
      * @param originHubId      출발 허브 ID
      * @param destinationHubId 도착 허브 ID
-     * @param allRoutes        전체 활성 허브 경로 (그래프 엣지)
+     * @param allRoutes        전체 활성 허브 경로 (그래프 엣지, 캐시 미적재 시 빌드에 사용)
      * @return 순서대로 정렬된 HubRoute 구간 목록, 경로 없으면 빈 리스트
      */
     public List<HubRoute> calculate(UUID originHubId, UUID destinationHubId, List<HubRoute> allRoutes) {
@@ -47,15 +75,7 @@ public class OptimalRouteCalculator {
             return Collections.emptyList();
         }
 
-        // ── 정책 필터: 200km 이상 구간은 직접 배송 불가 → 그래프에서 제외
-        // estimatedDistance가 null인 경우 거리 불명이므로 일단 포함
-        List<HubRoute> eligibleRoutes = allRoutes.stream()
-                .filter(r -> r.getEstimatedDistance() == null
-                        || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
-                .toList();
-
-        // 인접 리스트 그래프 구성: fromHubId → 출발 가능한 HubRoute 목록
-        Map<UUID, List<HubRoute>> graph = buildGraph(eligibleRoutes);
+        Map<UUID, List<HubRoute>> graph = getOrBuildGraph(allRoutes);
 
         // dist: 출발 허브로부터 각 노드까지의 현재 최단 비용
         Map<UUID, Integer> dist = new HashMap<>();
@@ -64,37 +84,35 @@ public class OptimalRouteCalculator {
 
         dist.put(originHubId, 0);
 
-        // 우선순위 큐: (비용, hubId) — 비용 오름차순
-        PriorityQueue<UUID> pq = new PriorityQueue<>(
-                Comparator.comparingInt(id -> dist.getOrDefault(id, Integer.MAX_VALUE))
-        );
-        pq.add(originHubId);
+        // PQ: 삽입 시점 비용을 Entry 에 고정 → heap ordering 항상 정확
+        PriorityQueue<Entry> pq = new PriorityQueue<>(Comparator.comparingInt(Entry::cost));
+        pq.offer(new Entry(0, originHubId));
 
         while (!pq.isEmpty()) {
-            UUID current = pq.poll();
+            Entry curr = pq.poll();
+
+            // lazy deletion: 이미 더 짧은 경로로 처리된 오래된 항목은 스킵
+            if (curr.cost() > dist.getOrDefault(curr.id(), Integer.MAX_VALUE)) {
+                continue;
+            }
 
             // 도착 허브 도달 시 조기 종료
-            if (current.equals(destinationHubId)) {
+            if (curr.id().equals(destinationHubId)) {
                 break;
             }
 
-            int currentCost = dist.getOrDefault(current, Integer.MAX_VALUE);
-
-            // 이미 더 짧은 경로로 처리된 노드는 스킵 (PQ 중복 삽입 대응)
-            // pq 안에 동일 노드가 여러 번 들어 있을 수 있으므로 현재 dist와 비교
-            for (HubRoute edge : graph.getOrDefault(current, Collections.emptyList())) {
+            for (HubRoute edge : graph.getOrDefault(curr.id(), Collections.emptyList())) {
                 UUID neighbor = edge.getToHubId();
-                int newCost = currentCost + weight(edge);
+                int newCost = curr.cost() + weight(edge);
 
                 if (newCost < dist.getOrDefault(neighbor, Integer.MAX_VALUE)) {
                     dist.put(neighbor, newCost);
                     prev.put(neighbor, edge);
-                    pq.add(neighbor); // 이미 있어도 재삽입 (lazy deletion 방식)
+                    pq.offer(new Entry(newCost, neighbor)); // 비용 고정하여 재삽입
                 }
             }
         }
 
-        // 도착 허브에 도달하지 못한 경우
         if (!prev.containsKey(destinationHubId)) {
             return Collections.emptyList();
         }
@@ -102,17 +120,64 @@ public class OptimalRouteCalculator {
         return reconstructPath(originHubId, destinationHubId, prev);
     }
 
-    // ──────────────────────────────────────────────
-    // private helpers
-    // ──────────────────────────────────────────────
+    /**
+     * 그래프 캐시를 무효화합니다.
+     *
+     * <p>허브 경로 CRUD 이후 반드시 호출해야 합니다. 다음 {@link #calculate} 호출 시
+     * 새로운 allRoutes 로 그래프가 재빌드됩니다.
+     */
+    public void invalidateGraph() {
+        graphLock.writeLock().lock();
+        try {
+            cachedGraph = null;
+        } finally {
+            graphLock.writeLock().unlock();
+        }
+    }
+
+    // ── private helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * Double-Checked Locking 으로 캐시된 그래프를 반환하거나, 없으면 빌드하여 캐싱합니다.
+     *
+     * <p>읽기 경합: ReadLock — 여러 요청이 동시에 캐시 히트 시 병렬 처리됩니다.
+     * 빌드 경합: WriteLock + DCL — 캐시 미스 시 한 번만 빌드되도록 보장합니다.
+     */
+    private Map<UUID, List<HubRoute>> getOrBuildGraph(List<HubRoute> allRoutes) {
+        // 1차 검사: ReadLock 으로 캐시 히트 여부 확인 (대부분의 경로)
+        graphLock.readLock().lock();
+        try {
+            if (cachedGraph != null) {
+                return cachedGraph;
+            }
+        } finally {
+            graphLock.readLock().unlock();
+        }
+
+        // 2차 검사: WriteLock 획득 후 재확인 (동시 빌드 방지)
+        graphLock.writeLock().lock();
+        try {
+            if (cachedGraph == null) {
+                // 정책 필터: 200km 이상 구간 제외 (거리 null 은 포함)
+                List<HubRoute> eligibleRoutes = allRoutes.stream()
+                        .filter(r -> r.getEstimatedDistance() == null
+                                || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
+                        .toList();
+                cachedGraph = buildGraph(eligibleRoutes);
+            }
+            return cachedGraph;
+        } finally {
+            graphLock.writeLock().unlock();
+        }
+    }
 
     /** fromHubId 기준 인접 리스트 구성 */
-    private Map<UUID, List<HubRoute>> buildGraph(List<HubRoute> allRoutes) {
+    private Map<UUID, List<HubRoute>> buildGraph(List<HubRoute> eligibleRoutes) {
         Map<UUID, List<HubRoute>> graph = new HashMap<>();
-        for (HubRoute route : allRoutes) {
+        for (HubRoute route : eligibleRoutes) {
             graph.computeIfAbsent(route.getFromHubId(), k -> new ArrayList<>()).add(route);
         }
-        return graph;
+        return Collections.unmodifiableMap(graph);
     }
 
     /**
@@ -146,7 +211,6 @@ public class OptimalRouteCalculator {
         while (!current.equals(originHubId)) {
             HubRoute edge = prev.get(current);
             if (edge == null) {
-                // 역추적 도중 끊기면 경로 없음으로 처리
                 return Collections.emptyList();
             }
             path.addFirst(edge);

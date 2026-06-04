@@ -52,7 +52,9 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
                 .estimatedDuration(command.estimatedDuration())
                 .build();
 
-        return HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        HubRouteResult result = HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        optimalRouteCalculator.invalidateGraph();
+        return result;
     }
 
     @Override
@@ -81,7 +83,9 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         HubRoute hubRoute = hubRouteRepository.findActiveById(hubRouteId)
                 .orElseThrow(() -> new NotFoundException("허브 경로를 찾을 수 없습니다."));
         hubRoute.update(command.estimatedDistance(), command.estimatedDuration());
-        return HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        HubRouteResult result = HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        optimalRouteCalculator.invalidateGraph();
+        return result;
     }
 
     @Override
@@ -90,7 +94,9 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         HubRoute hubRoute = hubRouteRepository.findActiveById(hubRouteId)
                 .orElseThrow(() -> new NotFoundException("허브 경로를 찾을 수 없습니다."));
         hubRoute.softDelete(null);
-        return HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        HubRouteResult result = HubRouteResult.from(hubRouteRepository.save(hubRoute));
+        optimalRouteCalculator.invalidateGraph();
+        return result;
     }
 
     @Override
