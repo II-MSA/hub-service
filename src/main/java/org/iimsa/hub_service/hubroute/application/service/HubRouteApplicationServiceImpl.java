@@ -20,8 +20,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -101,10 +102,13 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
 
     @Override
     public HubRoutePath findOptimalRoute(FindHubRoutePathQuery query) {
-        List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
+        // 캐시 미적재 시에만 DB·Feign 호출 — 캐시 히트 시 I/O 없음
+        if (optimalRouteCalculator.needsRebuild()) {
+            buildAndWarmCache();
+        }
 
         List<HubRoute> optimalPath = optimalRouteCalculator.calculate(
-                query.originHubId(), query.destinationHubId(), allRoutes
+                query.originHubId(), query.destinationHubId()
         );
 
         if (optimalPath.isEmpty()) {
@@ -112,5 +116,31 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         }
 
         return HubRoutePath.of(query.originHubId(), query.destinationHubId(), optimalPath);
+    }
+
+    // ── private helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * 전체 허브 경로를 DB에서 읽고, 참조된 모든 허브 좌표를 Feign 으로 일괄 조회한 뒤
+     * A* 그래프 캐시를 재빌드합니다.
+     *
+     * <p>needsRebuild() 확인 후 이 메서드를 호출하는 사이에 다른 스레드가 먼저
+     * warmCache 를 완료할 수 있습니다. warmCache 내부 DCL 이 이중 빌드를 막으므로
+     * 중복 호출은 안전하며 성능상 무해합니다.
+     */
+    private void buildAndWarmCache() {
+        List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
+        Set<UUID> hubIds = extractHubIds(allRoutes);
+        Map<UUID, HubInfo> hubCoords = hubInfoRepository.findHubsByIds(hubIds);
+        optimalRouteCalculator.warmCache(allRoutes, hubCoords);
+    }
+
+    /**
+     * 경로 목록에서 참조된 모든 허브 ID(출발 + 도착)를 추출합니다.
+     */
+    private Set<UUID> extractHubIds(List<HubRoute> routes) {
+        return routes.stream()
+                .flatMap(r -> Stream.of(r.getFromHubId(), r.getToHubId()))
+                .collect(Collectors.toSet());
     }
 }

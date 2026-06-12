@@ -1,5 +1,6 @@
 package org.iimsa.hub_service.hubroute.domain.service;
 
+import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.springframework.stereotype.Service;
 
@@ -8,32 +9,40 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * 허브 간 최적 경로 계산 도메인 서비스 — 다익스트라 알고리즘
+ * 허브 간 최적 경로 계산 도메인 서비스 — A* 알고리즘 (유클리드 휴리스틱)
  *
- * <p>전체 허브 경로(엣지) 그래프를 입력받아 출발 허브 → 도착 허브의
- * 최적 구간 시퀀스를 반환합니다.
- *
- * <h3>거리 제약 (P2P + Hub-to-Hub Relay 정책)</h3>
+ * <h3>알고리즘</h3>
+ * <p>f(n) = g(n) + h(n)
  * <ul>
- *   <li>단일 구간 거리가 {@value MAX_DIRECT_DISTANCE_KM}km 미만인 엣지만 그래프에 포함</li>
- *   <li>200km 이상인 구간은 직접 배송 불가 → 그래프에서 제외하여 중간 경유지 경로만 선택되도록 강제</li>
- *   <li>거리 정보가 없는(null) 엣지는 제약 판단 불가이므로 그래프에 포함</li>
+ *   <li>g(n): 출발 허브에서 n까지의 실제 누적 비용 (Kakao API estimatedDuration 기반)</li>
+ *   <li>h(n): n에서 목적지까지의 평면 유클리드 직선거리 기반 추정 비용</li>
  * </ul>
  *
- * <h3>가중치 정책</h3>
- * <ol>
- *   <li>{@code estimatedDuration} (분) — 최우선</li>
- *   <li>{@code estimatedDistance * 10} — duration null 시 대체</li>
- *   <li>{@code 999_999} — 둘 다 null 이면 최후순위</li>
- * </ol>
+ * <h3>휴리스틱 설계</h3>
+ * <p>실제 엣지 비용(소요시간)은 Kakao API로 적재된 값을 사용하므로, 휴리스틱은
+ * I/O 없이 즉시 계산 가능한 좌표 기반 직선거리를 활용합니다.
+ * Haversine(구면 거리) 대신 평면 유클리드 거리를 사용합니다.
+ * 한국 국토 규모(최대 ~1,000km)에서 두 공식의 오차는 0.3% 미만이므로
+ * 이미 근사값인 휴리스틱에서 Haversine의 추가 복잡도는 의미가 없습니다.
  *
- * <h3>그래프 캐싱</h3>
- * <p>경로 CRUD 가 없는 한 그래프 구조는 변하지 않으므로, 인접 리스트를 인메모리에
- * 캐싱하여 매 요청마다 발생하는 DB allRoutes → buildGraph 비용을 제거합니다.
- * CRUD 이벤트가 발생하면 {@link #invalidateGraph()} 를 호출해 캐시를 무효화합니다.
+ * <h3>휴리스틱 허용성(Admissibility) 보장</h3>
+ * <p>{@value MAX_HUB_SPEED_KM_PER_MIN} km/min({@value MAX_HUB_SPEED_KM_PER_MIN} × 60 = 90 km/h)를
+ * 허브 간 이동 가능한 최대 속도로 가정하여 h(n) = distKm / speed 로 분 단위 추정값을 계산합니다.
+ * 실제 소요시간은 정차·상하차·교통 등으로 항상 이 값 이상이므로 h(n) ≤ 실제 비용이 성립하고
+ * A*는 항상 최적 경로를 반환합니다.
+ * 좌표가 없는 노드에서는 h = 0 으로 fallback 하여 다익스트라처럼 동작합니다.
  *
- * <p>동시성: Double-Checked Locking + {@link ReadWriteLock} 으로 안전하게 보호합니다.
- * 읽기 경합은 ReadLock 으로 병렬 처리하고, 빌드/무효화에만 WriteLock 을 사용합니다.
+ * <h3>거리 제약</h3>
+ * <p>단일 구간 {@value MAX_DIRECT_DISTANCE_KM}km 이상 엣지는 그래프에서 제외합니다.
+ *
+ * <h3>인메모리 그래프 캐싱</h3>
+ * <p>{@link GraphCache}에 인접 리스트와 허브 좌표를 함께 보관하고,
+ * 경로 CRUD 이벤트 시 {@link #invalidateGraph()}로 무효화합니다.
+ * 다음 경로 탐색 시 {@link HubRouteApplicationService}가
+ * {@link #needsRebuild()}를 확인한 뒤 {@link #warmCache}를 호출하여 재빌드합니다.
+ *
+ * <h3>스레드 안전성</h3>
+ * <p>읽기 경합은 ReadLock으로 병렬 처리, 빌드·무효화는 WriteLock으로 직렬화합니다.
  */
 @Service
 public class OptimalRouteCalculator {
@@ -41,74 +50,163 @@ public class OptimalRouteCalculator {
     /** 단일 구간 직접 배송 허용 최대 거리 (km). 이 값 이상이면 중간 경유지 필수. */
     static final double MAX_DIRECT_DISTANCE_KM = 200.0;
 
+    /**
+     * 허브 간 이동 최대 속도 (km/min = 90 km/h).
+     * 보수적으로 설정할수록 h 값이 작아져 허용성이 강하게 보장됩니다.
+     * 공격적으로 높이면 탐색 노드는 더 줄지만 최적 경로를 놓칠 위험이 있습니다.
+     */
+    private static final double MAX_HUB_SPEED_KM_PER_MIN = 1.5; // 90 km/h
+
     private static final int DISTANCE_TO_DURATION_FACTOR = 10;
     private static final int WEIGHT_UNKNOWN = 999_999;
 
-    // ── 인메모리 그래프 캐시 ─────────────────────────────────────────────────────
+    // ── 인메모리 그래프 캐시 ──────────────────────────────────────────────────────
+
+    /**
+     * 인접 리스트와 허브 좌표를 함께 보관하는 캐시 단위.
+     * 두 데이터를 한 레코드로 묶어 무효화 시 원자적으로 처리합니다.
+     */
+    private record GraphCache(
+            Map<UUID, List<HubRoute>> adjacency,
+            Map<UUID, HubInfo> hubCoords
+    ) {}
+
     /** null 이면 캐시 미적재 상태. volatile 로 DCL 가시성 보장. */
-    private volatile Map<UUID, List<HubRoute>> cachedGraph = null;
+    private volatile GraphCache cachedGraph = null;
     private final ReadWriteLock graphLock = new ReentrantReadWriteLock();
 
-    // ── 내부 PQ 노드 레코드 ───────────────────────────────────────────────────────
+    // ── PQ 노드 레코드 ────────────────────────────────────────────────────────────
+
     /**
-     * PriorityQueue 삽입 시점의 비용을 고정 보관하는 불변 노드.
-     *
-     * <p>Java {@link PriorityQueue} 는 삽입 이후 힙을 재정렬하지 않기 때문에,
-     * dist 맵을 직접 comparator 로 사용하면 이미 삽입된 항목의 순위가
-     * 갱신되지 않아 잘못된 순서로 poll 될 수 있습니다.
-     * 비용을 레코드에 고정함으로써 heap ordering 을 항상 정확하게 유지합니다.
+     * f = g + h 값을 고정하여 PQ 순서를 정확하게 유지하는 불변 노드.
+     * closed set 으로 중복 처리를 방지하므로 g 는 별도 저장이 불필요합니다.
      */
-    private record Entry(int cost, UUID id) {}
+    private record Entry(int f, UUID id) {}
 
     // ── 공개 API ─────────────────────────────────────────────────────────────────
 
     /**
-     * 출발 허브에서 도착 허브까지의 최적 구간 시퀀스 계산
+     * 그래프 캐시가 없어 재빌드가 필요한지 확인합니다.
+     *
+     * <p>Application Service 는 이 메서드로 캐시 상태를 확인한 뒤
+     * 필요할 때만 DB·Feign 을 호출하여 {@link #warmCache}로 재빌드합니다.
+     * true 반환 직후 다른 스레드가 먼저 빌드할 수 있으나, {@link #warmCache} 내부
+     * DCL 이 이중 빌드를 막습니다.
+     */
+    public boolean needsRebuild() {
+        graphLock.readLock().lock();
+        try {
+            return cachedGraph == null;
+        } finally {
+            graphLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * 그래프 캐시를 빌드합니다 (Double-Checked Locking).
+     *
+     * <p>동시에 여러 스레드가 진입해도 WriteLock 이후 재확인하여
+     * 실제 빌드는 한 번만 수행됩니다.
+     *
+     * @param allRoutes 전체 활성 허브 경로 (200km 필터 미적용 원본)
+     * @param hubCoords hubId → HubInfo 좌표 맵 (A* 휴리스틱용)
+     */
+    public void warmCache(List<HubRoute> allRoutes, Map<UUID, HubInfo> hubCoords) {
+        graphLock.writeLock().lock();
+        try {
+            if (cachedGraph == null) {
+                List<HubRoute> eligible = allRoutes.stream()
+                        .filter(r -> r.getEstimatedDistance() == null
+                                || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
+                        .toList();
+                cachedGraph = new GraphCache(
+                        buildAdjacency(eligible),
+                        Map.copyOf(hubCoords)
+                );
+            }
+        } finally {
+            graphLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * 그래프 캐시를 무효화합니다.
+     *
+     * <p>허브 경로 CRUD 이후 반드시 호출해야 합니다.
+     * 다음 탐색 요청 시 Application Service 가 DB·Feign 을 재조회하여 캐시를 재빌드합니다.
+     */
+    public void invalidateGraph() {
+        graphLock.writeLock().lock();
+        try {
+            cachedGraph = null;
+        } finally {
+            graphLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * A* 알고리즘으로 최적 경로를 계산합니다.
+     *
+     * <p>{@link #warmCache}가 먼저 호출되어 있어야 합니다.
+     * 캐시가 없으면 {@link IllegalStateException}을 던집니다.
      *
      * @param originHubId      출발 허브 ID
      * @param destinationHubId 도착 허브 ID
-     * @param allRoutes        전체 활성 허브 경로 (그래프 엣지, 캐시 미적재 시 빌드에 사용)
      * @return 순서대로 정렬된 HubRoute 구간 목록, 경로 없으면 빈 리스트
+     * @throws IllegalStateException 캐시가 초기화되지 않은 경우
      */
-    public List<HubRoute> calculate(UUID originHubId, UUID destinationHubId, List<HubRoute> allRoutes) {
+    public List<HubRoute> calculate(UUID originHubId, UUID destinationHubId) {
         if (originHubId.equals(destinationHubId)) {
             return Collections.emptyList();
         }
 
-        Map<UUID, List<HubRoute>> graph = getOrBuildGraph(allRoutes);
+        GraphCache cache = getCache();
+        if (cache == null) {
+            throw new IllegalStateException(
+                    "그래프 캐시가 초기화되지 않았습니다. warmCache()를 먼저 호출하세요.");
+        }
 
-        // dist: 출발 허브로부터 각 노드까지의 현재 최단 비용
-        Map<UUID, Integer> dist = new HashMap<>();
-        // prev: 최단 경로 역추적용 — 노드에 도달하기 위해 사용된 엣지(HubRoute)
+        // g: 출발 허브로부터 각 노드까지의 실제 누적 비용
+        Map<UUID, Integer> g = new HashMap<>();
+        // prev: 최단 경로 역추적용 엣지
         Map<UUID, HubRoute> prev = new HashMap<>();
+        // closed: 이미 최적 경로가 확정된 노드 (재탐색 방지)
+        Set<UUID> closed = new HashSet<>();
 
-        dist.put(originHubId, 0);
+        g.put(originHubId, 0);
 
-        // PQ: 삽입 시점 비용을 Entry 에 고정 → heap ordering 항상 정확
-        PriorityQueue<Entry> pq = new PriorityQueue<>(Comparator.comparingInt(Entry::cost));
-        pq.offer(new Entry(0, originHubId));
+        int h0 = heuristic(originHubId, destinationHubId, cache.hubCoords());
+        PriorityQueue<Entry> pq = new PriorityQueue<>(Comparator.comparingInt(Entry::f));
+        pq.offer(new Entry(h0, originHubId));
 
         while (!pq.isEmpty()) {
             Entry curr = pq.poll();
 
-            // lazy deletion: 이미 더 짧은 경로로 처리된 오래된 항목은 스킵
-            if (curr.cost() > dist.getOrDefault(curr.id(), Integer.MAX_VALUE)) {
+            // closed set: 이미 처리된 노드는 스킵 (휴리스틱 허용성 보장 시 항상 최적)
+            if (!closed.add(curr.id())) {
                 continue;
             }
 
-            // 도착 허브 도달 시 조기 종료
+            // 목적지 도달 시 조기 종료
             if (curr.id().equals(destinationHubId)) {
                 break;
             }
 
-            for (HubRoute edge : graph.getOrDefault(curr.id(), Collections.emptyList())) {
-                UUID neighbor = edge.getToHubId();
-                int newCost = curr.cost() + weight(edge);
+            int gCurr = g.getOrDefault(curr.id(), Integer.MAX_VALUE);
 
-                if (newCost < dist.getOrDefault(neighbor, Integer.MAX_VALUE)) {
-                    dist.put(neighbor, newCost);
+            for (HubRoute edge : cache.adjacency().getOrDefault(curr.id(), Collections.emptyList())) {
+                UUID neighbor = edge.getToHubId();
+
+                if (closed.contains(neighbor)) {
+                    continue; // 확정된 노드는 재탐색 불필요
+                }
+
+                int newG = gCurr + weight(edge);
+                if (newG < g.getOrDefault(neighbor, Integer.MAX_VALUE)) {
+                    g.put(neighbor, newG);
                     prev.put(neighbor, edge);
-                    pq.offer(new Entry(newCost, neighbor)); // 비용 고정하여 재삽입
+                    int h = heuristic(neighbor, destinationHubId, cache.hubCoords());
+                    pq.offer(new Entry(newG + h, neighbor));
                 }
             }
         }
@@ -120,64 +218,60 @@ public class OptimalRouteCalculator {
         return reconstructPath(originHubId, destinationHubId, prev);
     }
 
-    /**
-     * 그래프 캐시를 무효화합니다.
-     *
-     * <p>허브 경로 CRUD 이후 반드시 호출해야 합니다. 다음 {@link #calculate} 호출 시
-     * 새로운 allRoutes 로 그래프가 재빌드됩니다.
-     */
-    public void invalidateGraph() {
-        graphLock.writeLock().lock();
-        try {
-            cachedGraph = null;
-        } finally {
-            graphLock.writeLock().unlock();
-        }
-    }
-
     // ── private helpers ──────────────────────────────────────────────────────────
 
-    /**
-     * Double-Checked Locking 으로 캐시된 그래프를 반환하거나, 없으면 빌드하여 캐싱합니다.
-     *
-     * <p>읽기 경합: ReadLock — 여러 요청이 동시에 캐시 히트 시 병렬 처리됩니다.
-     * 빌드 경합: WriteLock + DCL — 캐시 미스 시 한 번만 빌드되도록 보장합니다.
-     */
-    private Map<UUID, List<HubRoute>> getOrBuildGraph(List<HubRoute> allRoutes) {
-        // 1차 검사: ReadLock 으로 캐시 히트 여부 확인 (대부분의 경로)
+    private GraphCache getCache() {
         graphLock.readLock().lock();
         try {
-            if (cachedGraph != null) {
-                return cachedGraph;
-            }
-        } finally {
-            graphLock.readLock().unlock();
-        }
-
-        // 2차 검사: WriteLock 획득 후 재확인 (동시 빌드 방지)
-        graphLock.writeLock().lock();
-        try {
-            if (cachedGraph == null) {
-                // 정책 필터: 200km 이상 구간 제외 (거리 null 은 포함)
-                List<HubRoute> eligibleRoutes = allRoutes.stream()
-                        .filter(r -> r.getEstimatedDistance() == null
-                                || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
-                        .toList();
-                cachedGraph = buildGraph(eligibleRoutes);
-            }
             return cachedGraph;
         } finally {
-            graphLock.writeLock().unlock();
+            graphLock.readLock().unlock();
         }
     }
 
     /** fromHubId 기준 인접 리스트 구성 */
-    private Map<UUID, List<HubRoute>> buildGraph(List<HubRoute> eligibleRoutes) {
+    private Map<UUID, List<HubRoute>> buildAdjacency(List<HubRoute> eligibleRoutes) {
         Map<UUID, List<HubRoute>> graph = new HashMap<>();
         for (HubRoute route : eligibleRoutes) {
             graph.computeIfAbsent(route.getFromHubId(), k -> new ArrayList<>()).add(route);
         }
         return Collections.unmodifiableMap(graph);
+    }
+
+    /**
+     * 평면 유클리드 직선거리 기반 A* 휴리스틱 (분 단위).
+     *
+     * <p>좌표가 없는 경우 0 반환 → 다익스트라 동작으로 안전하게 fallback.
+     */
+    private int heuristic(UUID nodeId, UUID destId, Map<UUID, HubInfo> hubCoords) {
+        HubInfo node = hubCoords.get(nodeId);
+        HubInfo dest = hubCoords.get(destId);
+        if (node == null || dest == null || !node.hasCoordinate() || !dest.hasCoordinate()) {
+            return 0;
+        }
+        double distKm = euclideanKm(
+                node.latitude(), node.longitude(),
+                dest.latitude(), dest.longitude()
+        );
+        // 분 단위 변환: distKm / MAX_HUB_SPEED_KM_PER_MIN
+        // 최대 속도를 보수적으로 잡아 h ≤ 실제 비용 항상 성립
+        return (int) (distKm / MAX_HUB_SPEED_KM_PER_MIN);
+    }
+
+    /**
+     * 평면 유클리드 공식으로 두 지점 간 직선거리(km)를 계산합니다.
+     *
+     * <p>위도 1° ≈ 111km, 경도 1° ≈ 111km × cos(위도) 를 적용합니다.
+     * Haversine 대비 한국 국토 규모에서 오차 0.3% 미만으로, 휴리스틱 용도로 충분합니다.
+     */
+    private static double euclideanKm(double lat1, double lon1, double lat2, double lon2) {
+        final double KM_PER_DEG_LAT = 111.0;
+        double avgLat = (lat1 + lat2) / 2.0;
+        double kmPerDegLon = KM_PER_DEG_LAT * Math.cos(Math.toRadians(avgLat));
+
+        double dLat = (lat2 - lat1) * KM_PER_DEG_LAT;
+        double dLon = (lon2 - lon1) * kmPerDegLon;
+        return Math.sqrt(dLat * dLat + dLon * dLon);
     }
 
     /**
@@ -200,8 +294,6 @@ public class OptimalRouteCalculator {
 
     /**
      * prev 맵을 역추적하여 출발→도착 순서의 HubRoute 리스트 반환
-     *
-     * @return 순서가 보장된 HubRoute 구간 리스트 (출발 → 도착 방향)
      */
     private List<HubRoute> reconstructPath(UUID originHubId, UUID destinationHubId,
                                             Map<UUID, HubRoute> prev) {

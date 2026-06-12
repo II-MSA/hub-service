@@ -2,6 +2,8 @@ package org.iimsa.hub_service.hubroute.domain.repository;
 
 import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -18,4 +20,16 @@ public interface HubInfoRepository {
      * @throws org.iimsa.common.exception.NotFoundException 허브가 존재하지 않으면
      */
     HubInfo findHub(UUID hubId);
+
+    /**
+     * 허브 ID 집합으로 허브 정보를 일괄 조회합니다.
+     *
+     * <p>A* 휴리스틱 계산을 위한 좌표 일괄 로드에 사용됩니다.
+     * 개별 조회에 실패한 허브는 결과 맵에서 제외되며, 해당 노드에서의 휴리스틱은
+     * 0으로 fallback 되어 다익스트라처럼 동작합니다.
+     *
+     * @param hubIds 조회할 허브 ID 집합
+     * @return hubId → HubInfo 맵 (조회 성공한 것만 포함)
+     */
+    Map<UUID, HubInfo> findHubsByIds(Set<UUID> hubIds);
 }
