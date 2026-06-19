@@ -2,7 +2,7 @@ package org.iimsa.hub_service.hub.infrastructure.event;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.common.event.Events;
+import org.ticketing.common.event.Events;
 import org.iimsa.hub_service.hub.domain.event.DeliveryEvents;
 import org.iimsa.hub_service.hub.domain.event.payload.DeliveryRequestedPayload;
 import org.springframework.beans.factory.annotation.Value;

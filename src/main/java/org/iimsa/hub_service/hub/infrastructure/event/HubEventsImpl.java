@@ -3,7 +3,7 @@ package org.iimsa.hub_service.hub.infrastructure.event;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.common.event.Events;
+import org.ticketing.common.event.Events;
 import org.iimsa.hub_service.hub.domain.event.HubEvents;
 import org.iimsa.hub_service.hub.domain.event.payload.HubAction;
 import org.iimsa.hub_service.hub.domain.event.payload.HubChangedPayload;

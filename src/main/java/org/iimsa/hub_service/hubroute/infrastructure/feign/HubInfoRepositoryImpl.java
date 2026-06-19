@@ -2,7 +2,7 @@ package org.iimsa.hub_service.hubroute.infrastructure.feign;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.common.exception.NotFoundException;
+import org.ticketing.common.exception.NotFoundException;
 import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.repository.HubInfoRepository;
 import org.springframework.stereotype.Repository;
@@ -34,8 +34,8 @@ public class HubInfoRepositoryImpl implements HubInfoRepository {
 
         HubFeignResponse data = response.data();
         return new HubInfo(
-                data.id(),
-                data.name(),
+                data.hubId(),
+                data.hubName(),
                 data.address(),
                 data.latitude(),
                 data.longitude()

@@ -17,7 +17,7 @@ public interface HubInfoRepository {
     /**
      * 허브 ID로 허브 정보 조회
      *
-     * @throws org.iimsa.common.exception.NotFoundException 허브가 존재하지 않으면
+     * @throws org.ticketing.common.exception.NotFoundException 허브가 존재하지 않으면
      */
     HubInfo findHub(UUID hubId);
 

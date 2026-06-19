@@ -11,7 +11,8 @@ public record HubRoutePathResponse(
         UUID destinationHubId,
         int totalDuration,      // 전체 예상 소요시간 합산 (분)
         double totalDistance,   // 전체 예상 거리 합산 (km)
-        List<SegmentResponse> segments
+        List<SegmentResponse> segments,
+        int nodesExplored       // 알고리즘이 탐색한 노드 수 (성능 측정용)
 
 ) {
     public static HubRoutePathResponse from(HubRoutePath path) {
@@ -24,7 +25,8 @@ public record HubRoutePathResponse(
                 path.destinationHubId(),
                 path.totalDuration(),
                 path.totalDistance(),
-                segments
+                segments,
+                path.nodesExplored()
         );
     }
 

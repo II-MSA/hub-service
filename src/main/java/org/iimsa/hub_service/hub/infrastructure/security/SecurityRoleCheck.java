@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.iimsa.common.util.SecurityUtil;
+import org.ticketing.common.util.SecurityUtil;
 import org.iimsa.hub_service.hub.domain.model.UserType;
 import org.iimsa.hub_service.hub.domain.service.RoleCheck;
 import org.springframework.stereotype.Component;

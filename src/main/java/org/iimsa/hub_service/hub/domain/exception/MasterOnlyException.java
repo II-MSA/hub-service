@@ -1,6 +1,6 @@
 package org.iimsa.hub_service.hub.domain.exception;
 
-import org.iimsa.common.exception.ForbiddenException;
+import org.ticketing.common.exception.ForbiddenException;
 import org.iimsa.hub_service.hub.domain.model.UserType;
 
 public class MasterOnlyException extends ForbiddenException {

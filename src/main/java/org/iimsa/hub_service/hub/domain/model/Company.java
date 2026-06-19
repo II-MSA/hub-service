@@ -7,7 +7,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
-import org.iimsa.common.exception.BadRequestException;
+import org.ticketing.common.exception.BadRequestException;
 import org.iimsa.hub_service.hub.domain.exception.CompanyNotFoundException;
 import org.iimsa.hub_service.hub.domain.service.CompanyProvider;
 import org.iimsa.hub_service.hub.domain.service.dto.CompanyData;

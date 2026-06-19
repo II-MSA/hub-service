@@ -24,7 +24,7 @@ import lombok.ToString;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.type.SqlTypes;
-import org.iimsa.common.domain.BaseEntity;
+import org.ticketing.common.domain.BaseEntity;
 import org.iimsa.hub_service.hub.domain.event.HubEvents;
 import org.iimsa.hub_service.hub.domain.event.payload.HubAction;
 import org.iimsa.hub_service.hub.domain.exception.MasterOnlyException;
@@ -50,7 +50,7 @@ public class Hub extends BaseEntity {
     @Column(length = 100, nullable = false)
     private String name;
 
-    @Column(name = "address")
+    @Embedded
     private Address address;
 
     @Embedded

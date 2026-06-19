@@ -22,7 +22,13 @@ public record HubRoutePath(
         double totalDistance,
 
         /** 순서가 있는 구간 목록 */
-        List<Segment> segments
+        List<Segment> segments,
+
+        /**
+         * 알고리즘이 탐색(closed set 추가)한 노드 수.
+         * A* 와 Dijkstra 성능 비교를 위한 관측 지표.
+         */
+        int nodesExplored
 
 ) {
     /**
@@ -31,8 +37,10 @@ public record HubRoutePath(
      * @param originHubId      출발 허브 ID
      * @param destinationHubId 도착 허브 ID
      * @param orderedRoutes    알고리즘이 반환한 순서대로 정렬된 HubRoute 목록
+     * @param nodesExplored    탐색 노드 수 (성능 측정용)
      */
-    public static HubRoutePath of(UUID originHubId, UUID destinationHubId, List<HubRoute> orderedRoutes) {
+    public static HubRoutePath of(UUID originHubId, UUID destinationHubId,
+                                  List<HubRoute> orderedRoutes, int nodesExplored) {
         List<Segment> segments = new ArrayList<>();
         int totalDuration = 0;
         double totalDistance = 0.0;
@@ -52,7 +60,7 @@ public record HubRoutePath(
             if (route.getEstimatedDistance() != null) totalDistance += route.getEstimatedDistance();
         }
 
-        return new HubRoutePath(originHubId, destinationHubId, totalDuration, totalDistance, segments);
+        return new HubRoutePath(originHubId, destinationHubId, totalDuration, totalDistance, segments, nodesExplored);
     }
 
     /** 단일 허브 구간 정보 */

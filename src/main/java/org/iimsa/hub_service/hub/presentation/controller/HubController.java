@@ -3,6 +3,7 @@ package org.iimsa.hub_service.hub.presentation.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.iimsa.hub_service.hub.application.query.HubQueryService;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.ticketing.common.response.CommonResponse;
 
 @RestController
 @RequiredArgsConstructor
@@ -44,54 +46,56 @@ public class HubController {
     @PreAuthorize("hasRole('MASTER')")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public CreateHubResponseDto.Create createHub(@RequestBody CreateHubRequestDto.Create requestDto) {
+    public CommonResponse<CreateHubResponseDto.Create> createHub(
+            @Valid @RequestBody CreateHubRequestDto.Create requestDto) {
         UUID hubId = hubService.createHub(requestDto.toDto());
-        return new CreateHubResponseDto.Create(hubId);
+        return CommonResponse.success("허브가 생성되었습니다.", new CreateHubResponseDto.Create(hubId));
     }
 
     @Operation(summary = "허브에 상품 추가", description = "특정 허브에 업체의 상품을 보관(추가)합니다.")
     @PreAuthorize("hasRole('MASTER')")
     @PostMapping("/{hubId}/hubProducts")
     @ResponseStatus(HttpStatus.CREATED)
-    public void addProductToHub(
+    public CommonResponse<Void> addProductToHub(
             @PathVariable UUID hubId,
-            @RequestBody CreateHubProductRequestDto requestDto) {
+            @Valid @RequestBody CreateHubProductRequestDto requestDto) {
         hubService.addProductToHub(hubId, requestDto.getStock(), requestDto.getCompanyId());
+        return CommonResponse.success("허브 상품이 추가되었습니다.", null);
     }
 
     // read
     @Operation(summary = "허브 단건 상세 조회", description = "ID를 통해 특정 허브의 상세 정보를 조회합니다.")
     @GetMapping("/{hubId}")
-    public GetHubResponseDto.Info getHub(
+    public CommonResponse<GetHubResponseDto.Info> getHub(
             @Parameter(description = "조회할 허브 ID", required = true) @PathVariable UUID hubId) {
-        return hubQueryService.getHub(hubId);
+        return CommonResponse.success(hubQueryService.getHub(hubId));
     }
 
     @Operation(summary = "전체 허브 목록 조건 검색", description = "조건(허브명, 주소, 담당자 등)과 페이징을 통해 허브 목록을 통합 검색합니다.")
     @GetMapping
     @PageableAsQueryParam
-    public Page<Info> searchHubs(
+    public CommonResponse<Page<Info>> searchHubs(
             @ParameterObject SearchHubRequestDto.Search request,
             @Parameter(hidden = true) Pageable pageable) {
-        return hubQueryService.searchHubs(request.toDomainDto(), pageable);
+        return CommonResponse.success(hubQueryService.searchHubs(request.toDomainDto(), pageable));
     }
 
     @Operation(summary = "특정 담당자가 관리하는 허브 목록 조회", description = "지정된 허브 매니저(Manager) ID가 관리하는 허브 목록을 조회합니다.")
     @GetMapping("/hubManagers/{hubManagerId}")
     @PageableAsQueryParam
-    public Page<GetHubResponseDto.Info> searchHubsByManager(
+    public CommonResponse<Page<GetHubResponseDto.Info>> searchHubsByManager(
             @Parameter(description = "허브 담당자 ID", required = true) @PathVariable UUID hubManagerId,
             @Parameter(hidden = true) Pageable pageable) {
-        return hubQueryService.searchHubsByManager(hubManagerId, pageable);
+        return CommonResponse.success(hubQueryService.searchHubsByManager(hubManagerId, pageable));
     }
 
     @Operation(summary = "특정 업체가 속한 허브 목록 조회", description = "해당 업체의 상품을 보관 중인 허브 목록을 조회합니다.")
     @GetMapping("/companies/{companyId}")
     @PageableAsQueryParam
-    public Page<GetHubResponseDto.Info> searchHubsByCompany(
+    public CommonResponse<Page<GetHubResponseDto.Info>> searchHubsByCompany(
             @Parameter(description = "업체 ID", required = true) @PathVariable UUID companyId,
             @Parameter(hidden = true) Pageable pageable) {
-        return hubQueryService.searchHubsByCompany(companyId, pageable);
+        return CommonResponse.success(hubQueryService.searchHubsByCompany(companyId, pageable));
     }
 
     // update
@@ -101,7 +105,7 @@ public class HubController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changeHubName(
             @PathVariable UUID hubId,
-            @RequestBody PatchHubRequestDto.ChangeHubName request) {
+            @Valid @RequestBody PatchHubRequestDto.ChangeHubName request) {
         hubService.changeHubName(hubId, request.getName());
     }
 
@@ -111,7 +115,7 @@ public class HubController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changeHubAddress(
             @PathVariable UUID hubId,
-            @RequestBody PatchHubRequestDto.ChangeHubAddress request) {
+            @Valid @RequestBody PatchHubRequestDto.ChangeHubAddress request) {
         hubService.changeHubAddress(hubId, request.getAddress());
     }
 
@@ -121,7 +125,7 @@ public class HubController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changeHubManager(
             @PathVariable UUID hubId,
-            @RequestBody PatchHubRequestDto.ChangeHubManager request) {
+            @Valid @RequestBody PatchHubRequestDto.ChangeHubManager request) {
         hubService.changeHubManager(hubId, request.getHubManagerId(), request.getHubManagerName());
     }
 

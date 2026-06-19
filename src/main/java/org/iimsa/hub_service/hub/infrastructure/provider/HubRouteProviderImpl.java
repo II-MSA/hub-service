@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.common.response.CommonResponse;
+import org.ticketing.common.response.CommonResponse;
 import org.iimsa.hub_service.hub.domain.model.HubRoute;
 import org.iimsa.hub_service.hub.domain.model.HubRoutePath;
 import org.iimsa.hub_service.hub.domain.service.HubRouteProvider;

@@ -25,8 +25,8 @@ repositories {
         name = "GitHubPackages"
         url = uri("https://maven.pkg.github.com/apangmsa/common-module")
         credentials {
-            username = System.getenv("GPR_USER")
-            password = System.getenv("GPR_TOKEN")
+            username = project.findProperty("GPR_USER") ?: System.getenv("GPR_USER")
+            password = project.findProperty("GPR_TOKEN") ?: System.getenv("GPR_TOKEN")
         }
     }
 }
@@ -38,7 +38,7 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation 'com.iimsa:common2:1.2-SNAPSHOT'
+    implementation 'org.ticketing:common:2.0-SNAPSHOT'
 
     // Redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'

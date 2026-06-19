@@ -1,8 +1,8 @@
 package org.iimsa.hub_service.hubroute.application.service;
 
 import lombok.RequiredArgsConstructor;
-import org.iimsa.common.exception.ConflictException;
-import org.iimsa.common.exception.NotFoundException;
+import org.ticketing.common.exception.ConflictException;
+import org.ticketing.common.exception.NotFoundException;
 import org.iimsa.hub_service.hubroute.application.dto.command.CreateHubRouteCommand;
 import org.iimsa.hub_service.hubroute.application.dto.command.UpdateHubRouteCommand;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery;
@@ -14,7 +14,9 @@ import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoutePath;
 import org.iimsa.hub_service.hubroute.domain.repository.HubInfoRepository;
 import org.iimsa.hub_service.hubroute.domain.repository.HubRouteRepository;
+import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery.Algorithm;
 import org.iimsa.hub_service.hubroute.domain.service.OptimalRouteCalculator;
+import org.iimsa.hub_service.hubroute.domain.service.OptimalRouteCalculator.RouteCalculationResult;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -107,15 +109,18 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
             buildAndWarmCache();
         }
 
-        List<HubRoute> optimalPath = optimalRouteCalculator.calculate(
-                query.originHubId(), query.destinationHubId()
-        );
+        Algorithm algorithm = query.algorithm() != null ? query.algorithm() : Algorithm.ASTAR;
 
-        if (optimalPath.isEmpty()) {
+        RouteCalculationResult result = algorithm == Algorithm.DIJKSTRA
+                ? optimalRouteCalculator.calculateDijkstra(query.originHubId(), query.destinationHubId())
+                : optimalRouteCalculator.calculate(query.originHubId(), query.destinationHubId());
+
+        if (result.path().isEmpty()) {
             throw new NotFoundException("출발 허브에서 도착 허브까지의 경로를 찾을 수 없습니다.");
         }
 
-        return HubRoutePath.of(query.originHubId(), query.destinationHubId(), optimalPath);
+        return HubRoutePath.of(query.originHubId(), query.destinationHubId(),
+                result.path(), result.nodesExplored());
     }
 
     // ── private helpers ──────────────────────────────────────────────────────────

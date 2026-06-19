@@ -4,11 +4,14 @@ import java.util.UUID;
 
 /**
  * Hub 서비스 Feign 응답 DTO
- * GET /api/v1/hubs/{hubId} 응답의 data 필드에 매핑
+ * GET /hubs/{hubId} 응답의 data 필드에 매핑
+ *
+ * <p>GetHubResponseDto.Info 의 JSON 필드명과 일치해야 합니다:
+ * hubId, hubName, address, latitude, longitude
  */
 public record HubFeignResponse(
-        UUID id,
-        String name,
+        UUID hubId,
+        String hubName,
         String address,
         Double latitude,
         Double longitude

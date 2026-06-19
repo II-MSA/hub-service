@@ -1,7 +1,7 @@
 package org.iimsa.hub_service.hub.infrastructure.client;
 
 import java.util.UUID;
-import org.iimsa.common.response.CommonResponse;
+import org.ticketing.common.response.CommonResponse;
 import org.iimsa.hub_service.hub.infrastructure.client.dto.HubDeliveryManagerResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;

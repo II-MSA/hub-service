@@ -83,6 +83,14 @@ public class OptimalRouteCalculator {
      */
     private record Entry(int f, UUID id) {}
 
+    /**
+     * 경로 계산 결과: 최적 경로 구간 목록 + 탐색 노드 수.
+     *
+     * <p>{@code nodesExplored}는 알고리즘이 closed set 에 추가한 노드 수로,
+     * A* 와 Dijkstra 의 탐색 효율을 비교하는 벤치마크 지표로 활용됩니다.
+     */
+    public record RouteCalculationResult(List<HubRoute> path, int nodesExplored) {}
+
     // ── 공개 API ─────────────────────────────────────────────────────────────────
 
     /**
@@ -145,19 +153,43 @@ public class OptimalRouteCalculator {
     }
 
     /**
-     * A* 알고리즘으로 최적 경로를 계산합니다.
+     * A* 알고리즘으로 최적 경로를 계산합니다 (유클리드 휴리스틱 적용).
      *
      * <p>{@link #warmCache}가 먼저 호출되어 있어야 합니다.
      * 캐시가 없으면 {@link IllegalStateException}을 던집니다.
      *
      * @param originHubId      출발 허브 ID
      * @param destinationHubId 도착 허브 ID
-     * @return 순서대로 정렬된 HubRoute 구간 목록, 경로 없으면 빈 리스트
+     * @return 경로 구간 목록과 탐색 노드 수를 담은 {@link RouteCalculationResult}
      * @throws IllegalStateException 캐시가 초기화되지 않은 경우
      */
-    public List<HubRoute> calculate(UUID originHubId, UUID destinationHubId) {
+    public RouteCalculationResult calculate(UUID originHubId, UUID destinationHubId) {
+        return search(originHubId, destinationHubId, true);
+    }
+
+    /**
+     * 다익스트라 알고리즘으로 최적 경로를 계산합니다 (휴리스틱 없음, h = 0).
+     *
+     * <p>A*의 h = 0 특수 케이스입니다. 탐색 노드 수가 A*보다 많아 느리지만
+     * 음수 가중치가 없는 그래프에서 항상 최적 경로를 반환합니다.
+     *
+     * @param originHubId      출발 허브 ID
+     * @param destinationHubId 도착 허브 ID
+     * @return 경로 구간 목록과 탐색 노드 수를 담은 {@link RouteCalculationResult}
+     * @throws IllegalStateException 캐시가 초기화되지 않은 경우
+     */
+    public RouteCalculationResult calculateDijkstra(UUID originHubId, UUID destinationHubId) {
+        return search(originHubId, destinationHubId, false);
+    }
+
+    /**
+     * A* / Dijkstra 공통 탐색 로직.
+     *
+     * @param useHeuristic true = A* (유클리드 휴리스틱), false = Dijkstra (h = 0)
+     */
+    private RouteCalculationResult search(UUID originHubId, UUID destinationHubId, boolean useHeuristic) {
         if (originHubId.equals(destinationHubId)) {
-            return Collections.emptyList();
+            return new RouteCalculationResult(Collections.emptyList(), 0);
         }
 
         GraphCache cache = getCache();
@@ -175,7 +207,7 @@ public class OptimalRouteCalculator {
 
         g.put(originHubId, 0);
 
-        int h0 = heuristic(originHubId, destinationHubId, cache.hubCoords());
+        int h0 = useHeuristic ? heuristic(originHubId, destinationHubId, cache.hubCoords()) : 0;
         PriorityQueue<Entry> pq = new PriorityQueue<>(Comparator.comparingInt(Entry::f));
         pq.offer(new Entry(h0, originHubId));
 
@@ -205,17 +237,24 @@ public class OptimalRouteCalculator {
                 if (newG < g.getOrDefault(neighbor, Integer.MAX_VALUE)) {
                     g.put(neighbor, newG);
                     prev.put(neighbor, edge);
-                    int h = heuristic(neighbor, destinationHubId, cache.hubCoords());
+                    int h = useHeuristic
+                            ? heuristic(neighbor, destinationHubId, cache.hubCoords())
+                            : 0;
                     pq.offer(new Entry(newG + h, neighbor));
                 }
             }
         }
 
+        int nodesExplored = closed.size();
+
         if (!prev.containsKey(destinationHubId)) {
-            return Collections.emptyList();
+            return new RouteCalculationResult(Collections.emptyList(), nodesExplored);
         }
 
-        return reconstructPath(originHubId, destinationHubId, prev);
+        return new RouteCalculationResult(
+                reconstructPath(originHubId, destinationHubId, prev),
+                nodesExplored
+        );
     }
 
     // ── private helpers ──────────────────────────────────────────────────────────

@@ -15,8 +15,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.hibernate.annotations.SQLRestriction;
-import org.iimsa.common.domain.BaseEntity;
-import org.iimsa.common.exception.BadRequestException;
+import org.ticketing.common.domain.BaseEntity;
+import org.ticketing.common.exception.BadRequestException;
 import org.iimsa.hub_service.hub.domain.service.CompanyProvider;
 import org.iimsa.hub_service.hub.domain.service.ProductProvider;
 
@@ -26,9 +26,8 @@ import org.iimsa.hub_service.hub.domain.service.ProductProvider;
 @Table(
         name="P_HUB_PRODUCT",
         indexes = {
-                @Index(name = "idx_hub_product_company_code_deleted", columnList = "company_id, product_code, deleted_at"),
-                @Index(name = "idx_hub_product_hub_id", columnList = "hub_id"),
-                @Index(name = "idx_hub_product_status", columnList = "status")
+                @Index(name = "idx_hub_product_company_deleted", columnList = "company_id, deleted_at"),
+                @Index(name = "idx_hub_product_hub_id", columnList = "hub_id")
         }
 )
 @Access(AccessType.FIELD)

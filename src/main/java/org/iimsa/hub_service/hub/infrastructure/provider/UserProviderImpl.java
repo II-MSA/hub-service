@@ -4,7 +4,7 @@ import feign.FeignException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.iimsa.common.response.CommonResponse;
+import org.ticketing.common.response.CommonResponse;
 import org.iimsa.hub_service.hub.domain.service.UserProvider;
 import org.iimsa.hub_service.hub.domain.service.dto.HubDeliveryManagerData;
 import org.iimsa.hub_service.hub.infrastructure.client.UserClient;

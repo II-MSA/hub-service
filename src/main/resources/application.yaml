@@ -2,6 +2,8 @@ server:
   port: 5140
 
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: hub-service
   config:
@@ -23,6 +25,15 @@ spring:
       ddl-auto: update
     show-sql: true
 
+feign:
+  client:
+    hub-service:
+      url: http://localhost:${server.port}
+
+openapi:
+  service:
+    url: http://localhost:${server.port}
+
 kakao:
   mobility:
     api-key: ${KAKAO_API_KEY:}
@@ -42,3 +53,9 @@ eureka:
 topics:
   hub:
     hub-changed: hub.changed
+  company:
+    updated: company.updated
+  companyManager:
+    updated: companyManager.updated
+  hubProduct:
+    updated: hubProduct.updated

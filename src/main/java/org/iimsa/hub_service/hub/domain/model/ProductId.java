@@ -10,7 +10,7 @@ import org.hibernate.type.SqlTypes;
 @Embeddable
 public record ProductId(
         @JdbcTypeCode(SqlTypes.UUID)
-        @Column(length=36, name="product_id")
+        @Column(length=36, name="hub_product_id")
         UUID id
 ) implements Serializable {
     public static ProductId of(UUID id) {

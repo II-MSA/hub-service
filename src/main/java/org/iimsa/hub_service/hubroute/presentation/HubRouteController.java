@@ -3,18 +3,22 @@ package org.iimsa.hub_service.hubroute.presentation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.iimsa.common.response.CommonResponse;
+import org.ticketing.common.response.CommonResponse;
 import jakarta.validation.Valid;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery;
+import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery.Algorithm;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.service.HubRouteApplicationService;
+import org.iimsa.hub_service.hubroute.domain.model.HubRoutePath;
 import org.iimsa.hub_service.hubroute.presentation.dto.request.CreateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.request.UpdateHubRouteRequest;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRoutePathResponse;
 import org.iimsa.hub_service.hubroute.presentation.dto.response.HubRouteResponse;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -89,18 +93,29 @@ public class HubRouteController {
 
     @Operation(
             summary = "출발 허브 → 도착 허브 최적 전체 경로 조회",
-            description = "Hub 서비스가 배차 시 Feign으로 호출합니다. 알고리즘 구현 전까지 UnsupportedOperationException 반환."
+            description = """
+                    Hub 서비스가 배차 시 Feign으로 호출합니다.
+                    algorithm 파라미터로 탐색 알고리즘을 선택할 수 있습니다 (기본값: ASTAR).
+                    응답 헤더 X-Nodes-Explored 에 알고리즘이 탐색한 노드 수가 포함됩니다.
+                    """
     )
     @GetMapping("/path")
-    public CommonResponse<HubRoutePathResponse> findOptimalRoute(
+    public ResponseEntity<CommonResponse<HubRoutePathResponse>> findOptimalRoute(
             @RequestParam UUID originHubId,
-            @RequestParam UUID destinationHubId
+            @RequestParam UUID destinationHubId,
+            @RequestParam(defaultValue = "ASTAR") Algorithm algorithm
     ) {
-        HubRoutePathResponse response = HubRoutePathResponse.from(
-                hubRouteApplicationService.findOptimalRoute(
-                        new FindHubRoutePathQuery(originHubId, destinationHubId)
-                )
+        HubRoutePath path = hubRouteApplicationService.findOptimalRoute(
+                new FindHubRoutePathQuery(originHubId, destinationHubId, algorithm)
         );
-        return CommonResponse.success(response);
+        HubRoutePathResponse response = HubRoutePathResponse.from(path);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-Nodes-Explored", String.valueOf(path.nodesExplored()));
+        headers.add("X-Algorithm", algorithm.name());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(CommonResponse.success(response));
     }
 }

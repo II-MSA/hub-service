@@ -2,9 +2,8 @@ package org.iimsa.hub_service.hub.infrastructure.messaging.kafka.listener;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.catalina.Manager;
-import org.iimsa.common.messaging.annotation.IdempotentConsumer;
-import org.iimsa.common.util.JsonUtil;
+import org.ticketing.common.messaging.annotation.IdempotentConsumer;
+import org.ticketing.common.util.JsonUtil;
 import org.iimsa.hub_service.hub.application.service.HubService;
 import org.iimsa.hub_service.hub.domain.model.HubManager;
 import org.springframework.kafka.annotation.KafkaListener;
