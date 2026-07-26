@@ -46,6 +46,9 @@ dependencies {
     // OpenFeign
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 
+    // Actuator (k6 부하테스트 중 CPU/메모리/GC 지표를 /actuator/metrics로 확인하기 위함)
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
     // 하단에 개별 서비스에 맞는 의존성 추가
     implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
 

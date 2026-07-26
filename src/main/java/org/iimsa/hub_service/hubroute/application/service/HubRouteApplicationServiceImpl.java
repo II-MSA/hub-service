@@ -35,6 +35,17 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
     private final HubInfoRepository hubInfoRepository;
     private final OptimalRouteCalculator optimalRouteCalculator;
 
+    /**
+     * buildAndWarmCache() 동시 실행을 막기 위한 락.
+     *
+     * <p>needsRebuild() 확인 후 buildAndWarmCache() 호출 사이의 시간차 동안 다수의
+     * 스레드가 동시에 캐시 미적재 상태를 관찰할 수 있습니다. 이 락이 없으면 각 스레드가
+     * 전부 DB 조회 + Feign 배치 호출을 중복 수행하게 되어(예: VU=200 동시 유입 시
+     * 수십~수백 회 중복 재빌드) Tomcat 스레드풀/HikariCP 커넥션풀이 자기 자신의
+     * 부하로 고갈되는 문제가 있었습니다.
+     */
+    private final Object cacheBuildLock = new Object();
+
     @Override
     @Transactional
     public HubRouteResult createHubRoute(CreateHubRouteCommand command) {
@@ -129,15 +140,21 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
      * 전체 허브 경로를 DB에서 읽고, 참조된 모든 허브 좌표를 Feign 으로 일괄 조회한 뒤
      * A* 그래프 캐시를 재빌드합니다.
      *
-     * <p>needsRebuild() 확인 후 이 메서드를 호출하는 사이에 다른 스레드가 먼저
-     * warmCache 를 완료할 수 있습니다. warmCache 내부 DCL 이 이중 빌드를 막으므로
-     * 중복 호출은 안전하며 성능상 무해합니다.
+     * <p>cacheBuildLock 으로 감싸고, 락 진입 직후 needsRebuild() 를 다시 확인합니다
+     * (이중 체크 로킹). needsRebuild() 확인 후 이 메서드를 호출하는 사이에 다른
+     * 스레드가 먼저 락을 잡고 재빌드를 끝냈다면, 뒤이어 락을 잡는 스레드들은
+     * DB 조회·Feign 호출 없이 즉시 반환합니다.
      */
     private void buildAndWarmCache() {
-        List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
-        Set<UUID> hubIds = extractHubIds(allRoutes);
-        Map<UUID, HubInfo> hubCoords = hubInfoRepository.findHubsByIds(hubIds);
-        optimalRouteCalculator.warmCache(allRoutes, hubCoords);
+        synchronized (cacheBuildLock) {
+            if (!optimalRouteCalculator.needsRebuild()) {
+                return; // 락 대기 중 다른 스레드가 이미 재빌드를 완료함
+            }
+            List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
+            Set<UUID> hubIds = extractHubIds(allRoutes);
+            Map<UUID, HubInfo> hubCoords = hubInfoRepository.findHubsByIds(hubIds);
+            optimalRouteCalculator.warmCache(allRoutes, hubCoords);
+        }
     }
 
     /**

@@ -59,3 +59,17 @@ topics:
     updated: companyManager.updated
   hubProduct:
     updated: hubProduct.updated
+
+# k6 부하테스트 중 CPU/메모리/GC 지표를 확인하기 위한 로컬/벤치마크용 설정.
+# 인증은 걸지 않음(InternalApiSecurityConfig와 동일하게 로컬 전용 노출).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}

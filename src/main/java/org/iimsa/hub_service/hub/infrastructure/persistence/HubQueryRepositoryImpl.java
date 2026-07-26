@@ -9,6 +9,7 @@ import com.querydsl.jpa.impl.JPAQueryFactory;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.iimsa.hub_service.hub.domain.model.Hub;
 import org.iimsa.hub_service.hub.domain.model.HubId;
@@ -38,6 +39,14 @@ public class HubQueryRepositoryImpl implements HubQueryRepository {
 
         // 허브 자체는 삭제되지 않아야
         builder.and(hub.deletedAt.isNull());
+
+        // 0. hubId 목록으로 필터링 (예: hubroute 그래프 캐시 배치 조회)
+        if (searchDto.getHubIds() != null && !searchDto.getHubIds().isEmpty()) {
+            List<UUID> hubIdValues = searchDto.getHubIds().stream()
+                    .map(HubId::id)
+                    .collect(Collectors.toList());
+            builder.and(hub.id.id.in(hubIdValues));
+        }
 
         // 1. Hub 기본 검색 조건
         if (StringUtils.hasText(searchDto.getHubName())) {
