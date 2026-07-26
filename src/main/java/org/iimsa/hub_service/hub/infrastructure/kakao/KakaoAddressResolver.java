@@ -17,7 +17,7 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class KakaoAddressResolver implements AddressResolver {
-    @Value("${KAKAO_API_KEY}")
+    @Value("${kakao.mobility.api-key:}")
     private String apiKey;
 
     private final RestClient restClient;
