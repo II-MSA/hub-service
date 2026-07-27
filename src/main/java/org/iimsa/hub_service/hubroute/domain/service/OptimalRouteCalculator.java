@@ -1,7 +1,9 @@
 package org.iimsa.hub_service.hubroute.domain.service;
 
+import org.iimsa.hub_service.hubroute.domain.cache.LiveRouteCache;
 import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
+import org.iimsa.hub_service.hubroute.domain.model.HubRouteEdgeKey;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -14,13 +16,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <h3>알고리즘</h3>
  * <p>f(n) = g(n) + h(n)
  * <ul>
- *   <li>g(n): 출발 허브에서 n까지의 실제 누적 비용 (Kakao API estimatedDuration 기반)</li>
+ *   <li>g(n): 출발 허브에서 n까지의 실제 누적 비용 (구간별 실시간/기본 소요시간 기반)</li>
  *   <li>h(n): n에서 목적지까지의 평면 유클리드 직선거리 기반 추정 비용</li>
  * </ul>
  *
  * <h3>휴리스틱 설계</h3>
- * <p>실제 엣지 비용(소요시간)은 Kakao API로 적재된 값을 사용하므로, 휴리스틱은
- * I/O 없이 즉시 계산 가능한 좌표 기반 직선거리를 활용합니다.
+ * <p>실제 엣지 비용(소요시간)은 Redis live 캐시(실시간) 또는 DB 저장값(기본)을 사용하므로,
+ * 휴리스틱은 I/O 없이 즉시 계산 가능한 좌표 기반 직선거리를 활용합니다.
  * Haversine(구면 거리) 대신 평면 유클리드 거리를 사용합니다.
  * 한국 국토 규모(최대 ~1,000km)에서 두 공식의 오차는 0.3% 미만이므로
  * 이미 근사값인 휴리스틱에서 Haversine의 추가 복잡도는 의미가 없습니다.
@@ -35,9 +37,16 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <h3>거리 제약</h3>
  * <p>단일 구간 {@value MAX_DIRECT_DISTANCE_KM}km 이상 엣지는 그래프에서 제외합니다.
  *
+ * <h3>구간 가중치 — 실시간 우선, DB 정적값 폴백</h3>
+ * <p>{@link #warmCache}가 전달받는 {@code liveWeights}(Redis에서 벌크 조회된 구간별 실시간
+ * 소요시간)를 우선 사용하고, 값이 없는 구간만 {@link HubRoute}의 {@code estimatedDuration}/
+ * {@code estimatedDistance}(DB 정적값)로 폴백합니다. 가중치는 그래프 빌드 시점에 한 번만
+ * 계산되어 {@link Edge}에 baked-in 되므로, 탐색 도중에는 순수 in-memory 조회만 발생합니다
+ * (탐색 중 구간별 개별 조회는 N+1 패턴을 재현하므로 의도적으로 배제).
+ *
  * <h3>인메모리 그래프 캐싱</h3>
  * <p>{@link GraphCache}에 인접 리스트와 허브 좌표를 함께 보관하고,
- * 경로 CRUD 이벤트 시 {@link #invalidateGraph()}로 무효화합니다.
+ * 경로 CRUD 이벤트 또는 실시간 소요시간 갱신 시 {@link #invalidateGraph()}로 무효화합니다.
  * 다음 경로 탐색 시 {@link HubRouteApplicationService}가
  * {@link #needsRebuild()}를 확인한 뒤 {@link #warmCache}를 호출하여 재빌드합니다.
  *
@@ -63,11 +72,21 @@ public class OptimalRouteCalculator {
     // ── 인메모리 그래프 캐시 ──────────────────────────────────────────────────────
 
     /**
+     * 그래프 간선. 원본 {@link HubRoute}와 빌드 시점에 확정된 가중치를 함께 보관합니다.
+     * (실시간 캐시 유무를 매 탐색마다 다시 판단하지 않도록 build-time에 한 번만 계산)
+     */
+    private record Edge(HubRoute route, int weight) {
+        UUID toHubId() {
+            return route.getToHubId();
+        }
+    }
+
+    /**
      * 인접 리스트와 허브 좌표를 함께 보관하는 캐시 단위.
      * 두 데이터를 한 레코드로 묶어 무효화 시 원자적으로 처리합니다.
      */
     private record GraphCache(
-            Map<UUID, List<HubRoute>> adjacency,
+            Map<UUID, List<Edge>> adjacency,
             Map<UUID, HubInfo> hubCoords
     ) {}
 
@@ -97,7 +116,7 @@ public class OptimalRouteCalculator {
      * 그래프 캐시가 없어 재빌드가 필요한지 확인합니다.
      *
      * <p>Application Service 는 이 메서드로 캐시 상태를 확인한 뒤
-     * 필요할 때만 DB·Feign 을 호출하여 {@link #warmCache}로 재빌드합니다.
+     * 필요할 때만 DB·Feign·Redis 를 호출하여 {@link #warmCache}로 재빌드합니다.
      * true 반환 직후 다른 스레드가 먼저 빌드할 수 있으나, {@link #warmCache} 내부
      * DCL 이 이중 빌드를 막습니다.
      */
@@ -116,10 +135,13 @@ public class OptimalRouteCalculator {
      * <p>동시에 여러 스레드가 진입해도 WriteLock 이후 재확인하여
      * 실제 빌드는 한 번만 수행됩니다.
      *
-     * @param allRoutes 전체 활성 허브 경로 (200km 필터 미적용 원본)
-     * @param hubCoords hubId → HubInfo 좌표 맵 (A* 휴리스틱용)
+     * @param allRoutes   전체 활성 허브 경로 (200km 필터 미적용 원본)
+     * @param hubCoords   hubId → HubInfo 좌표 맵 (A* 휴리스틱용)
+     * @param liveWeights (fromHubId, toHubId) → Redis 실시간 소요시간 맵 (벌크 조회 결과,
+     *                    미스인 구간은 DB {@code estimatedDuration}/{@code estimatedDistance}로 폴백)
      */
-    public void warmCache(List<HubRoute> allRoutes, Map<UUID, HubInfo> hubCoords) {
+    public void warmCache(List<HubRoute> allRoutes, Map<UUID, HubInfo> hubCoords,
+                           Map<HubRouteEdgeKey, LiveRouteCache> liveWeights) {
         graphLock.writeLock().lock();
         try {
             if (cachedGraph == null) {
@@ -128,7 +150,7 @@ public class OptimalRouteCalculator {
                                 || r.getEstimatedDistance() < MAX_DIRECT_DISTANCE_KM)
                         .toList();
                 cachedGraph = new GraphCache(
-                        buildAdjacency(eligible),
+                        buildAdjacency(eligible, liveWeights),
                         Map.copyOf(hubCoords)
                 );
             }
@@ -140,8 +162,8 @@ public class OptimalRouteCalculator {
     /**
      * 그래프 캐시를 무효화합니다.
      *
-     * <p>허브 경로 CRUD 이후 반드시 호출해야 합니다.
-     * 다음 탐색 요청 시 Application Service 가 DB·Feign 을 재조회하여 캐시를 재빌드합니다.
+     * <p>허브 경로 CRUD 이후, 또는 Redis 실시간 소요시간이 주기 갱신된 이후 호출해야 합니다.
+     * 다음 탐색 요청 시 Application Service 가 DB·Feign·Redis 를 재조회하여 캐시를 재빌드합니다.
      */
     public void invalidateGraph() {
         graphLock.writeLock().lock();
@@ -201,7 +223,7 @@ public class OptimalRouteCalculator {
         // g: 출발 허브로부터 각 노드까지의 실제 누적 비용
         Map<UUID, Integer> g = new HashMap<>();
         // prev: 최단 경로 역추적용 엣지
-        Map<UUID, HubRoute> prev = new HashMap<>();
+        Map<UUID, Edge> prev = new HashMap<>();
         // closed: 이미 최적 경로가 확정된 노드 (재탐색 방지)
         Set<UUID> closed = new HashSet<>();
 
@@ -226,14 +248,14 @@ public class OptimalRouteCalculator {
 
             int gCurr = g.getOrDefault(curr.id(), Integer.MAX_VALUE);
 
-            for (HubRoute edge : cache.adjacency().getOrDefault(curr.id(), Collections.emptyList())) {
-                UUID neighbor = edge.getToHubId();
+            for (Edge edge : cache.adjacency().getOrDefault(curr.id(), Collections.emptyList())) {
+                UUID neighbor = edge.toHubId();
 
                 if (closed.contains(neighbor)) {
                     continue; // 확정된 노드는 재탐색 불필요
                 }
 
-                int newG = gCurr + weight(edge);
+                int newG = gCurr + edge.weight();
                 if (newG < g.getOrDefault(neighbor, Integer.MAX_VALUE)) {
                     g.put(neighbor, newG);
                     prev.put(neighbor, edge);
@@ -268,11 +290,18 @@ public class OptimalRouteCalculator {
         }
     }
 
-    /** fromHubId 기준 인접 리스트 구성 */
-    private Map<UUID, List<HubRoute>> buildAdjacency(List<HubRoute> eligibleRoutes) {
-        Map<UUID, List<HubRoute>> graph = new HashMap<>();
+    /**
+     * fromHubId 기준 인접 리스트 구성. 구간별 가중치를 이 시점에 한 번만 계산해 Edge에 baked-in 합니다.
+     */
+    private Map<UUID, List<Edge>> buildAdjacency(List<HubRoute> eligibleRoutes,
+                                                  Map<HubRouteEdgeKey, LiveRouteCache> liveWeights) {
+        Map<UUID, List<Edge>> graph = new HashMap<>();
         for (HubRoute route : eligibleRoutes) {
-            graph.computeIfAbsent(route.getFromHubId(), k -> new ArrayList<>()).add(route);
+            LiveRouteCache live = liveWeights.get(
+                    HubRouteEdgeKey.of(route.getFromHubId(), route.getToHubId()));
+            int weight = resolveWeight(route, live);
+            graph.computeIfAbsent(route.getFromHubId(), k -> new ArrayList<>())
+                    .add(new Edge(route, weight));
         }
         return Collections.unmodifiableMap(graph);
     }
@@ -314,14 +343,22 @@ public class OptimalRouteCalculator {
     }
 
     /**
-     * 엣지 가중치 계산
+     * 구간 가중치 계산 (그래프 빌드 시점에 한 번만 호출)
      * <ol>
-     *   <li>estimatedDuration(분) 우선</li>
-     *   <li>estimatedDistance(km) × 10 대체</li>
-     *   <li>둘 다 null → 999_999 (최후순위)</li>
+     *   <li>Redis live 캐시의 duration(분) 우선</li>
+     *   <li>Redis live 캐시의 distance(km) × 10 대체</li>
+     *   <li>DB estimatedDuration(분) 대체</li>
+     *   <li>DB estimatedDistance(km) × 10 대체</li>
+     *   <li>모두 null → 999_999 (최후순위)</li>
      * </ol>
      */
-    private int weight(HubRoute route) {
+    private int resolveWeight(HubRoute route, LiveRouteCache live) {
+        if (live != null && live.duration() != null) {
+            return live.duration();
+        }
+        if (live != null && live.distance() != null) {
+            return (int) Math.ceil(live.distance() * DISTANCE_TO_DURATION_FACTOR);
+        }
         if (route.getEstimatedDuration() != null) {
             return route.getEstimatedDuration();
         }
@@ -335,17 +372,17 @@ public class OptimalRouteCalculator {
      * prev 맵을 역추적하여 출발→도착 순서의 HubRoute 리스트 반환
      */
     private List<HubRoute> reconstructPath(UUID originHubId, UUID destinationHubId,
-                                            Map<UUID, HubRoute> prev) {
+                                            Map<UUID, Edge> prev) {
         LinkedList<HubRoute> path = new LinkedList<>();
         UUID current = destinationHubId;
 
         while (!current.equals(originHubId)) {
-            HubRoute edge = prev.get(current);
+            Edge edge = prev.get(current);
             if (edge == null) {
                 return Collections.emptyList();
             }
-            path.addFirst(edge);
-            current = edge.getFromHubId();
+            path.addFirst(edge.route());
+            current = edge.route().getFromHubId();
         }
 
         return new ArrayList<>(path);
