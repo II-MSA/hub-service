@@ -7,7 +7,6 @@ import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
 import org.iimsa.hub_service.hubroute.domain.model.RouteTimeSource;
 import org.iimsa.hub_service.hubroute.domain.repository.HubInfoRepository;
-import org.iimsa.hub_service.hubroute.domain.repository.HubRouteCacheRepository;
 import org.iimsa.hub_service.hubroute.domain.repository.HubRouteHistoryRepository;
 import org.springframework.stereotype.Service;
 
@@ -22,7 +21,6 @@ import java.util.UUID;
  *   <li>REALTIME        — 허브 좌표로 외부 API 실시간 조회</li>
  *   <li>DB_AVERAGE      — p_hub_route_history 최근 30건 평균</li>
  *   <li>BASE_DURATION   — HubRoute 엔티티의 기본 저장값</li>
- *   <li>PREVIOUS_SNAPSHOT — 직전 배차 스냅샷</li>
  * </ol>
  */
 @Slf4j
@@ -33,7 +31,6 @@ public class RouteTimeResolver {
     private final ExternalRouteTimeClient externalRouteTimeClient;
     private final HubInfoRepository hubInfoRepository;
     private final HubRouteHistoryRepository historyRepository;
-    private final HubRouteCacheRepository cacheRepository;
 
     public LiveRouteCache resolve(HubRoute hubRoute) {
         UUID from = hubRoute.getFromHubId();
@@ -56,16 +53,6 @@ public class RouteTimeResolver {
         if (hubRoute.getEstimatedDuration() != null) {
             log.debug("[BASE_DURATION] from={} to={}", from, to);
             return LiveRouteCache.of(hubRoute.getEstimatedDuration(), hubRoute.getEstimatedDistance(), RouteTimeSource.BASE_DURATION);
-        }
-
-        // 4. PREVIOUS_SNAPSHOT
-        var latestSnapshotId = cacheRepository.getLatestSnapshotId();
-        if (latestSnapshotId.isPresent()) {
-            var snapshot = cacheRepository.getSnapshot(latestSnapshotId.get(), from, to);
-            if (snapshot.isPresent()) {
-                log.debug("[PREVIOUS_SNAPSHOT] from={} to={} snapshotId={}", from, to, latestSnapshotId.get());
-                return LiveRouteCache.of(snapshot.get().duration(), snapshot.get().distance(), RouteTimeSource.PREVIOUS_SNAPSHOT);
-            }
         }
 
         log.warn("[FALLBACK 전체 실패] from={} to={} — null 반환", from, to);

@@ -13,8 +13,5 @@ public enum RouteTimeSource {
     DB_AVERAGE,
 
     /** 직선 거리 기반 기본 추정값 */
-    BASE_DURATION,
-
-    /** 직전 배차 스냅샷 값 */
-    PREVIOUS_SNAPSHOT
+    BASE_DURATION
 }
