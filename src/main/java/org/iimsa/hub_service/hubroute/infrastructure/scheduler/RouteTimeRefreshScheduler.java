@@ -21,7 +21,7 @@ import java.util.List;
  * 실시간 → DB 평균 → 기본값 순으로 최선의 값을 사용합니다.
  *
  * <p>갱신이 끝나면 {@link OptimalRouteCalculator#invalidateGraph()}를 호출해
- * A*/Dijkstra 그래프 캐시를 무효화합니다. 다음 경로 탐색 요청이 그래프를 재빌드할 때
+ * A* / Dijkstra 그래프 캐시를 무효화합니다. 다음 경로 탐색 요청이 그래프를 재빌드할 때
  * {@link HubRouteCacheRepository#getLiveBulk}로 방금 갱신된 실시간 소요시간을
  * 벌크 조회해 구간 가중치에 반영합니다 — 탐색 중 개별 Redis 조회 없이, 주기적
  * 벌크 갱신만으로 실시간성을 반영하는 구조입니다.
