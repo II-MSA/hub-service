@@ -9,10 +9,13 @@ import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuer
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.query.ListHubRouteQuery;
 import org.iimsa.hub_service.hubroute.application.dto.result.HubRouteResult;
+import org.iimsa.hub_service.hubroute.domain.cache.LiveRouteCache;
 import org.iimsa.hub_service.hubroute.domain.model.HubInfo;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoute;
+import org.iimsa.hub_service.hubroute.domain.model.HubRouteEdgeKey;
 import org.iimsa.hub_service.hubroute.domain.model.HubRoutePath;
 import org.iimsa.hub_service.hubroute.domain.repository.HubInfoRepository;
+import org.iimsa.hub_service.hubroute.domain.repository.HubRouteCacheRepository;
 import org.iimsa.hub_service.hubroute.domain.repository.HubRouteRepository;
 import org.iimsa.hub_service.hubroute.application.dto.query.FindHubRoutePathQuery.Algorithm;
 import org.iimsa.hub_service.hubroute.domain.service.OptimalRouteCalculator;
@@ -33,6 +36,7 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
 
     private final HubRouteRepository hubRouteRepository;
     private final HubInfoRepository hubInfoRepository;
+    private final HubRouteCacheRepository hubRouteCacheRepository;
     private final OptimalRouteCalculator optimalRouteCalculator;
 
     /**
@@ -137,13 +141,17 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
     // ── private helpers ──────────────────────────────────────────────────────────
 
     /**
-     * 전체 허브 경로를 DB에서 읽고, 참조된 모든 허브 좌표를 Feign 으로 일괄 조회한 뒤
-     * A* 그래프 캐시를 재빌드합니다.
+     * 전체 허브 경로를 DB에서 읽고, 참조된 모든 허브 좌표를 Feign 으로 일괄 조회하고,
+     * 각 구간의 실시간 소요시간을 Redis 에서 벌크 조회한 뒤 A* 그래프 캐시를 재빌드합니다.
      *
      * <p>cacheBuildLock 으로 감싸고, 락 진입 직후 needsRebuild() 를 다시 확인합니다
      * (이중 체크 로킹). needsRebuild() 확인 후 이 메서드를 호출하는 사이에 다른
      * 스레드가 먼저 락을 잡고 재빌드를 끝냈다면, 뒤이어 락을 잡는 스레드들은
-     * DB 조회·Feign 호출 없이 즉시 반환합니다.
+     * DB 조회·Feign 호출·Redis 조회 없이 즉시 반환합니다.
+     *
+     * <p>Redis 조회는 구간 수만큼 개별 호출하지 않고 {@link HubRouteCacheRepository#getLiveBulk}로
+     * 한 번에 가져옵니다 — 탐색 중 개별 조회와 동일한 N+1 패턴을 그래프 빌드 시점에
+     * 재현하지 않기 위함입니다.
      */
     private void buildAndWarmCache() {
         synchronized (cacheBuildLock) {
@@ -153,7 +161,8 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
             List<HubRoute> allRoutes = hubRouteRepository.findAllActive();
             Set<UUID> hubIds = extractHubIds(allRoutes);
             Map<UUID, HubInfo> hubCoords = hubInfoRepository.findHubsByIds(hubIds);
-            optimalRouteCalculator.warmCache(allRoutes, hubCoords);
+            Map<HubRouteEdgeKey, LiveRouteCache> liveWeights = fetchLiveWeights(allRoutes);
+            optimalRouteCalculator.warmCache(allRoutes, hubCoords, liveWeights);
         }
     }
 
@@ -164,5 +173,17 @@ public class HubRouteApplicationServiceImpl implements HubRouteApplicationServic
         return routes.stream()
                 .flatMap(r -> Stream.of(r.getFromHubId(), r.getToHubId()))
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * 경로 목록의 각 구간(from→to)에 대한 Redis 실시간 소요시간을 벌크 조회합니다.
+     * 캐시 미스인 구간은 결과 맵에서 제외되며, {@link OptimalRouteCalculator}가
+     * DB {@code estimatedDuration}/{@code estimatedDistance}로 폴백합니다.
+     */
+    private Map<HubRouteEdgeKey, LiveRouteCache> fetchLiveWeights(List<HubRoute> routes) {
+        Set<HubRouteEdgeKey> edgeKeys = routes.stream()
+                .map(r -> HubRouteEdgeKey.of(r.getFromHubId(), r.getToHubId()))
+                .collect(Collectors.toSet());
+        return hubRouteCacheRepository.getLiveBulk(edgeKeys);
     }
 }
