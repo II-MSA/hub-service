@@ -25,7 +25,9 @@ public interface HubRouteApplicationService {
 
     /**
      * 출발 허브 → 도착 허브 간 최적 전체 경로 조회
-     * Hub 서비스가 Feign으로 호출합니다.
+     *
+     * <p>hub 도메인의 {@code HubRouteProviderImpl} 이 같은 프로세스 내에서 직접 호출합니다
+     * (hubroute 가 물리적으로 분리되기 전까지는 Feign 을 거치지 않습니다).
      */
     HubRoutePath findOptimalRoute(FindHubRoutePathQuery query);
 }

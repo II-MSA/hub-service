@@ -10,7 +10,8 @@ import java.util.UUID;
  * HubRoute 도메인이 Hub 정보를 조회하기 위한 도메인 리포지토리
  *
  * <p>허브 경로 생성 시 허브명 조회, 실시간 소요시간 계산 시 좌표 조회에 사용합니다.
- * 구현체: infrastructure/feign/HubInfoRepositoryImpl (Feign)
+ * 구현체: infrastructure/local/HubInfoRepositoryLocalImpl (같은 프로세스 내 직접 호출).
+ * hub 서비스가 물리적으로 분리되면 Feign 기반 어댑터로 교체될 수 있습니다.
  */
 public interface HubInfoRepository {
 
