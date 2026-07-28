@@ -2,6 +2,8 @@ server:
   port: 5140
 
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: hub-service
   config:
@@ -17,12 +19,50 @@ spring:
     username: apang
     password: apangpass
     driver-class-name: org.postgresql.Driver
-
   # 임시 jpa 설정 ( 이후 config-server로 부터 받을 예정 )
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+feign:
+  client:
+    hub-service:
+      url: http://localhost:${server.port}
+  circuitbreaker:
+    enabled: true       # FeignClient 의 fallback/fallbackFactory 를 서킷브레이커로 감쌈 (기본은 꺼져있음)
+    group:
+      enabled: true      # 서킷브레이커 인스턴스를 메서드 단위가 아니라 @FeignClient(name=...) 서비스 단위로 묶음
+
+# Resilience4j 서킷브레이커 — Feign 클라이언트가 호출하는 하류 서비스별로 적용.
+# hub-service 내부(hub/hubroute) 자기참조 Feign은 인프로세스 호출로 전환해 이미 제거됨.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10             # 최근 10회 호출 기준으로 실패율 계산
+        minimum-number-of-calls: 5          # 최소 5회는 채워야 실패율 판단 (초기 소수 호출로 오픈되는 것 방지)
+        failure-rate-threshold: 50          # 실패율 50% 이상이면 OPEN
+        wait-duration-in-open-state: 10s    # OPEN 상태 유지 시간 — 이후 HALF_OPEN 으로 전환 시도
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+    instances:
+      user-service:
+        base-config: default
+      product-service:
+        base-config: default
+      company-service:
+        base-config: default
+
+openapi:
+  service:
+    url: http://localhost:${server.port}
+
+kakao:
+  mobility:
+    api-key: ${KAKAO_API_KEY:}
+    url: https://apis-navi.kakaomobility.com
 
 eureka:
   instance:
@@ -34,3 +74,27 @@ eureka:
     fetch-registry: true
     service-url:
       defaultZone: ${EUREKA_SERVER_URL:http://localhost:3101/eureka/}
+
+topics:
+  hub:
+    hub-changed: hub.changed
+  company:
+    updated: company.updated
+  companyManager:
+    updated: companyManager.updated
+  hubProduct:
+    updated: hubProduct.updated
+
+# k6 부하테스트 중 CPU/메모리/GC 지표를 확인하기 위한 로컬/벤치마크용 설정.
+# 인증은 걸지 않음(InternalApiSecurityConfig와 동일하게 로컬 전용 노출).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
