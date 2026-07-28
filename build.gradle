@@ -53,6 +53,12 @@ dependencies {
     // OpenFeign
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 
+    // Feign 서킷브레이커 — common-module 이 resilience4j-circuitbreaker(엔진)를 제공하지만,
+    // Spring Cloud OpenFeign 이 요구하는 org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory
+    // 빈은 이 starter가 있어야 등록됨. 이게 없으면 feign.circuitbreaker.enabled=true 를 켜도
+    // FeignClient 의 fallbackFactory 가 실제로 동작하지 않음.
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
+
     // Actuator (k6 부하테스트 중 CPU/메모리/GC 지표를 /actuator/metrics로 확인하기 위함)
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
