@@ -4,6 +4,7 @@ import feign.FeignException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.ticketing.common.response.CommonResponse;
 import org.iimsa.hub_service.hub.domain.service.HubManagerProvider;
 import org.iimsa.hub_service.hub.domain.service.dto.CompanyData;
 import org.iimsa.hub_service.hub.domain.service.dto.HubManagerData;
@@ -21,7 +22,8 @@ public class HubManagerProviderImple implements HubManagerProvider {
     @Override
     public HubManagerData getHubManager(UUID hubManagerId) {
         try {
-            HubManagerResponse res = client.getHubManager(hubManagerId);
+            CommonResponse<HubManagerResponse> response = client.getHubManager(hubManagerId);
+            HubManagerResponse res = response == null ? null : response.data();
             return res == null || res.name() == null ? null : new HubManagerData(res.id(), res.name());
 
         } catch (FeignException.NotFound e) {
